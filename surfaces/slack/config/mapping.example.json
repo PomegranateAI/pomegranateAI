@@ -1,0 +1,23 @@
+{
+  "teams": [
+    { "slack_team_id": "T0123ABCD", "pomegranate_api_url": "http://localhost:3000" }
+  ],
+  "users": [
+    {
+      "slack_team_id": "T0123ABCD",
+      "slack_user_id": "U_ALICE",
+      "slack_handle": "alice.martin",
+      "pomegranate_user_id": "u_alice",
+      "pomegranate_workspace_id": "ws_alice",
+      "mcp_token_env": "POMEGRANATE_WS_ALICE_TOKEN"
+    },
+    {
+      "slack_team_id": "T0123ABCD",
+      "slack_user_id": "U_SAM",
+      "slack_handle": "sam",
+      "pomegranate_user_id": "u_sam",
+      "pomegranate_workspace_id": "ws_sam",
+      "mcp_token_env": "POMEGRANATE_WS_SAM_TOKEN"
+    }
+  ]
+}

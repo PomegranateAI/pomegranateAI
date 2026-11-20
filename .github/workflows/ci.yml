@@ -1,0 +1,78 @@
+name: CI
+
+# Builds and tests every package on each pull request and push to main.
+# No secrets are needed: the test suites run on deterministic stubs.
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  server:
+    name: Server — build + tests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: app/server
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: app/server/package-lock.json
+      - run: npm ci
+      # The compiled dist/ is what `npm start` runs, so a failing build is a
+      # real failure, not just a typecheck.
+      - name: Build (tsc + assets)
+        run: npm run build
+      - name: Tests
+        run: npm run test:run
+      # The same suite with encryption at rest on. Every sealed column is then
+      # sealed on write and opened on read, so a path that skips either fails
+      # here. The key is throwaway, per run.
+      - name: Tests (sealed, POMEGRANATE_SEAL=1)
+        run: POMEGRANATE_SEAL=1 POMEGRANATE_LOCAL_KEK="$(openssl rand -base64 32)" npm run test:run
+
+  web:
+    name: Web — typecheck + build
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: app/web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: app/web/package-lock.json
+      - run: npm ci
+      - name: Build
+        run: npm run build
+
+  bots:
+    name: Bots — ${{ matrix.bot }}
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        bot: [slack, whatsapp]
+    defaults:
+      run:
+        working-directory: surfaces/${{ matrix.bot }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: surfaces/${{ matrix.bot }}/package-lock.json
+      - run: npm ci
+      - name: Typecheck
+        run: npm run typecheck
+      - name: Tests
+        run: npm test

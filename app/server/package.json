@@ -1,0 +1,54 @@
+{
+  "name": "pomegranate-server",
+  "version": "0.0.1",
+  "license": "MIT",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./dist/engine.js"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json && npm run copy-assets",
+    "start": "node dist/phase1/api/server.js",
+    "copy-assets": "node scripts/copy-assets.mjs",
+    "test": "vitest",
+    "test:run": "vitest run",
+    "dev:p1": "tsx src/phase1/api/server.ts",
+    "create-admin": "tsx scripts/create-admin.ts",
+    "env:example": "tsx scripts/env-example.ts",
+    "ingest": "tsx src/phase0/bin/ingest.ts",
+    "review": "tsx src/phase0/bin/review-hook.ts",
+    "dump-graph": "tsx src/phase0/bin/dump-graph.ts",
+    "migrate": "tsx src/phase1/migration/import.ts"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.30.1",
+    "@aws-sdk/client-s3": "^3.1131.0",
+    "@composio/core": "^0.14.0",
+    "@hono/node-server": "^2.1.11",
+    "@hono/zod-validator": "^0.9.1",
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "@xmldom/xmldom": "^0.8.15",
+    "better-sqlite3": "^12.10.0",
+    "cfb": "^1.2.2",
+    "dotenv": "^16.4.5",
+    "gray-matter": "^4.0.3",
+    "hono": "^4.6.10",
+    "image-size": "^2.0.2",
+    "jszip": "^3.10.2",
+    "mammoth": "^1.12.0",
+    "music-metadata": "^11.15.0",
+    "nanoid": "^5.0.7",
+    "pdf-parse": "^2.4.5",
+    "turndown": "^7.2.4",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.11",
+    "@types/node": "^22.7.4",
+    "@types/turndown": "^5.0.6",
+    "tsx": "^4.19.1",
+    "typescript": "^5.6.2",
+    "vitest": "^4.1.6"
+  }
+}

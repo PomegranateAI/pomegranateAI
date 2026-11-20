@@ -1,0 +1,27 @@
+node_modules/
+dist/
+coverage/
+*.tsbuildinfo
+.vite/
+
+# Secrets and local config
+.env
+.env.local
+**/.env
+!**/.env.example
+
+# Runtime data (database, uploaded files, logs)
+data/
+*.db
+*.db-wal
+*.db-shm
+*.log
+
+# Test output
+app/web/test-results/
+app/web/playwright-report/
+
+# OS / editor
+.DS_Store
+.vscode/
+.idea/

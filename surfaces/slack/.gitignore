@@ -1,0 +1,6 @@
+node_modules/
+dist/
+.env
+# config/mapping.json is committed (no secrets — MCP tokens live in .env via mcp_token_env)
+*.log
+data/

@@ -1,0 +1,16 @@
+{
+  "_comment": "Drop this content into .claude/settings.json (or merge with existing). Replace SERVER_DIST_PATH with the absolute path to dist/phase0/bin/review-hook.js after running `npm run build` in server/.",
+  "hooks": {
+    "Stop": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node SERVER_DIST_PATH/review-hook.js"
+          }
+        ]
+      }
+    ]
+  }
+}

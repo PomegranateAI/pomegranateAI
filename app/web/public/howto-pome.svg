@@ -1,0 +1,201 @@
+                      <svg viewBox="0 0 400 400" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+              <defs>
+                <radialGradient id="rind-s2" cx="36%" cy="28%" r="82%"><stop offset="0%" stop-color="oklch(0.95 0.05 32)"/><stop offset="52%" stop-color="oklch(0.83 0.13 25)"/><stop offset="100%" stop-color="oklch(0.6 0.2 22)"/></radialGradient>
+                <radialGradient id="flesh-s2" cx="40%" cy="34%" r="78%"><stop offset="0%" stop-color="oklch(0.98 0.02 40)"/><stop offset="100%" stop-color="oklch(0.93 0.06 30)"/></radialGradient>
+                <radialGradient id="seed-s2" cx="34%" cy="28%" r="82%"><stop offset="0%" stop-color="oklch(0.76 0.22 16)"/><stop offset="100%" stop-color="oklch(0.43 0.21 24)"/></radialGradient>
+                <radialGradient id="seedBright-s2" cx="34%" cy="28%" r="82%"><stop offset="0%" stop-color="oklch(0.93 0.16 65)"/><stop offset="55%" stop-color="oklch(0.78 0.2 38)"/><stop offset="100%" stop-color="oklch(0.62 0.25 26)"/></radialGradient>
+                <radialGradient id="hub-s2" cx="38%" cy="32%" r="75%"><stop offset="0%" stop-color="oklch(0.99 0.03 60)"/><stop offset="45%" stop-color="oklch(0.85 0.16 38)"/><stop offset="100%" stop-color="oklch(0.62 0.25 24)"/></radialGradient>
+                <radialGradient id="vign-s2" cx="50%" cy="50%" r="50%"><stop offset="68%" stop-color="oklch(0.6 0.2 22 / 0)"/><stop offset="100%" stop-color="oklch(0.5 0.2 22 / 0.28)"/></radialGradient>
+                <filter id="glow-s2" x="-60%" y="-60%" width="220%" height="220%"><feGaussianBlur stdDeviation="2.6" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+                <filter id="hubGlow-s2" x="-120%" y="-120%" width="340%" height="340%"><feGaussianBlur stdDeviation="7" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+                <clipPath id="fruitClip-s2"><circle cx="200" cy="200" r="148"/></clipPath>
+              </defs>
+
+              <!-- soft halo -->
+              <circle cx="200" cy="200" r="184" fill="oklch(0.97 0.04 30)" opacity="0.55"/>
+
+              <!-- skin / rind -->
+              <circle cx="200" cy="200" r="158" fill="url(#rind-s2)"/>
+              <circle cx="200" cy="200" r="158" fill="none" stroke="oklch(0.99 0.02 40)" stroke-width="1.6" opacity="0.45"/>
+              <!-- flesh / pith interior -->
+              <circle cx="200" cy="200" r="148" fill="url(#flesh-s2)"/>
+
+              <g clip-path="url(#fruitClip-s2)">
+                <!-- seeds -->
+            <g><circle cx="162.8" cy="87.25" r="6.09" fill="url(#seed-s2)"/><circle cx="160.24" cy="84.45" r="1.58" fill="oklch(0.97 0.03 30 / 0.7)"/></g>
+            <g><circle cx="181.4" cy="87.25" r="6.12" fill="url(#seed-s2)"/><circle cx="178.83" cy="84.43" r="1.59" fill="oklch(0.97 0.03 30 / 0.7)"/></g>
+            <g><circle cx="200" cy="87.25" r="6.13" fill="url(#seed-s2)"/><circle cx="197.42" cy="84.43" r="1.59" fill="oklch(0.97 0.03 30 / 0.7)"/></g>
+            <g><circle cx="218.6" cy="87.25" r="6.12" fill="url(#seed-s2)"/><circle cx="216.03" cy="84.43" r="1.59" fill="oklch(0.97 0.03 30 / 0.7)"/></g>
+            <g><circle cx="237.2" cy="87.25" r="6.09" fill="url(#seed-s2)"/><circle cx="234.64" cy="84.45" r="1.58" fill="oklch(0.97 0.03 30 / 0.7)"/></g>
+            <g><circle cx="255.8" cy="87.25" r="6.04" fill="url(#seed-s2)"/><circle cx="253.26" cy="84.47" r="1.57" fill="oklch(0.97 0.03 30 / 0.7)"/></g>
+            <g><circle cx="116.3" cy="103.35" r="6.03" fill="url(#seed-s2)"/><circle cx="113.77" cy="100.58" r="1.57" fill="oklch(0.97 0.03 30 / 0.7)"/></g>
+            <g><circle cx="134.9" cy="103.35" r="6.11" fill="url(#seed-s2)"/><circle cx="132.34" cy="100.54" r="1.59" fill="oklch(0.97 0.03 30 / 0.7)"/></g>
+            <g><circle cx="153.5" cy="103.35" r="6.17" fill="url(#seed-s2)"/><circle cx="150.91" cy="100.51" r="1.6" fill="oklch(0.97 0.03 30 / 0.7)"/></g>
+            <g><circle cx="172.1" cy="103.35" r="6.21" fill="url(#seed-s2)"/><circle cx="169.49" cy="100.49" r="1.62" fill="oklch(0.97 0.03 30 / 0.7)"/></g>
+            <g><circle cx="190.7" cy="103.35" r="6.24" fill="url(#seed-s2)"/><circle cx="188.08" cy="100.48" r="1.62" fill="oklch(0.97 0.03 30 / 0.7)"/></g>
+            <g><circle cx="209.3" cy="103.35" r="6.24" fill="url(#seed-s2)"/><circle cx="206.68" cy="100.48" r="1.62" fill="oklch(0.97 0.03 30 / 0.7)"/></g>
+            <g><circle cx="227.9" cy="103.35" r="6.21" fill="url(#seed-s2)"/><circle cx="225.29" cy="100.49" r="1.62" fill="oklch(0.97 0.03 30 / 0.7)"/></g>
+            <g><circle cx="246.5" cy="103.35" r="6.17" fill="url(#seed-s2)"/><circle cx="243.91" cy="100.51" r="1.6" fill="oklch(0.97 0.03 30 / 0.7)"/></g>
+            <g><circle cx="265.1" cy="103.35" r="6.11" fill="url(#seed-s2)"/><circle cx="262.54" cy="100.54" r="1.59" fill="oklch(0.97 0.03 30 / 0.7)"/></g>
+            <g><circle cx="283.7" cy="103.35" r="6.03" fill="url(#seed-s2)"/><circle cx="281.17" cy="100.58" r="1.57" fill="oklch(0.97 0.03 30 / 0.7)"/></g>
+            <g><circle cx="107" cy="119.46" r="6.06" fill="url(#seed-s2)"/><circle cx="104.45" cy="116.67" r="1.58" fill="oklch(0.97 0.03 30 / 0.7)"/></g>
+            <g><circle cx="125.6" cy="119.46" r="6.15" fill="url(#seed-s2)"/><circle cx="123.02" cy="116.63" r="1.6" fill="oklch(0.97 0.03 30 / 0.7)"/></g>
+            <g><circle cx="144.2" cy="119.46" r="6.23" fill="url(#seed-s2)"/><circle cx="141.58" cy="116.59" r="1.62" fill="oklch(0.97 0.03 30 / 0.7)"/></g>
+            <g><circle cx="162.8" cy="119.46" r="6.3" fill="url(#seed-s2)"/><circle cx="160.16" cy="116.56" r="1.64" fill="oklch(0.97 0.03 30 / 0.7)"/></g>
+            <g><circle cx="181.4" cy="119.46" r="6.34" fill="url(#seed-s2)"/><circle cx="178.74" cy="116.55" r="1.65" fill="oklch(0.97 0.03 30 / 0.7)"/></g>
+            <g><circle cx="200" cy="119.46" r="6.35" fill="url(#seed-s2)"/><circle cx="197.33" cy="116.54" r="1.65" fill="oklch(0.97 0.03 30 / 0.7)"/></g>
+            <g><circle cx="218.6" cy="119.46" r="6.34" fill="url(#seed-s2)"/><circle cx="215.94" cy="116.55" r="1.65" fill="oklch(0.97 0.03 30 / 0.7)"/></g>
+            <g><circle cx="237.2" cy="119.46" r="6.3" fill="url(#seed-s2)"/><circle cx="234.56" cy="116.56" r="1.64" fill="oklch(0.97 0.03 30 / 0.7)"/></g>
+            <g><circle cx="255.8" cy="119.46" r="6.23" fill="url(#seed-s2)"/><circle cx="253.18" cy="116.59" r="1.62" fill="oklch(0.97 0.03 30 / 0.7)"/></g>
+            <g><circle cx="274.4" cy="119.46" r="6.15" fill="url(#seed-s2)"/><circle cx="271.82" cy="116.63" r="1.6" fill="oklch(0.97 0.03 30 / 0.7)"/></g>
+            <g><circle cx="293" cy="119.46" r="6.06" fill="url(#seed-s2)"/><circle cx="290.45" cy="116.67" r="1.58" fill="oklch(0.97 0.03 30 / 0.7)"/></g>
+            <g><circle cx="97.7" cy="135.57" r="6.08" fill="url(#seed-s2)"/><circle cx="95.15" cy="132.78" r="1.58" fill="oklch(0.97 0.03 30 / 0.7)"/></g>
+            <g><circle cx="116.3" cy="135.57" r="6.18" fill="url(#seed-s2)"/><circle cx="113.7" cy="132.73" r="1.61" fill="oklch(0.97 0.03 30 / 0.7)"/></g>
+            <g><circle cx="134.9" cy="135.57" r="6.28" fill="url(#seed-s2)"/><circle cx="132.26" cy="132.68" r="1.63" fill="oklch(0.97 0.03 30 / 0.7)"/></g>
+            <g><circle cx="153.5" cy="135.57" r="6.36" fill="url(#seed-s2)"/><circle cx="150.83" cy="132.65" r="1.65" fill="oklch(0.97 0.03 30 / 0.7)"/></g>
+            <g><circle cx="172.1" cy="135.57" r="6.42" fill="url(#seed-s2)"/><circle cx="169.4" cy="132.62" r="1.67" fill="oklch(0.97 0.03 30 / 0.7)"/></g>
+            <g><circle cx="209.3" cy="135.57" r="6.46" fill="url(#seed-s2)"/><circle cx="206.59" cy="132.6" r="1.68" fill="oklch(0.97 0.03 30 / 0.7)"/></g>
+            <g><circle cx="227.9" cy="135.57" r="6.42" fill="url(#seed-s2)"/><circle cx="225.2" cy="132.62" r="1.67" fill="oklch(0.97 0.03 30 / 0.7)"/></g>
+            <g><circle cx="246.5" cy="135.57" r="6.36" fill="url(#seed-s2)"/><circle cx="243.83" cy="132.65" r="1.65" fill="oklch(0.97 0.03 30 / 0.7)"/></g>
+            <g><circle cx="265.1" cy="135.57" r="6.28" fill="url(#seed-s2)"/><circle cx="262.46" cy="132.68" r="1.63" fill="oklch(0.97 0.03 30 / 0.7)"/></g>
+            <g><circle cx="283.7" cy="135.57" r="6.18" fill="url(#seed-s2)"/><circle cx="281.1" cy="132.73" r="1.61" fill="oklch(0.97 0.03 30 / 0.7)"/></g>
+            <g><circle cx="302.3" cy="135.57" r="6.08" fill="url(#seed-s2)"/><circle cx="299.75" cy="132.78" r="1.58" fill="oklch(0.97 0.03 30 / 0.7)"/></g>
+            <g><circle cx="88.4" cy="151.68" r="6.07" fill="url(#seed-s2)"/><circle cx="85.85" cy="148.89" r="1.58" fill="oklch(0.97 0.03 30 / 0.7)"/></g>
+            <g><circle cx="107" cy="151.68" r="6.19" fill="url(#seed-s2)"/><circle cx="104.4" cy="148.83" r="1.61" fill="oklch(0.97 0.03 30 / 0.7)"/></g>
+            <g><circle cx="144.2" cy="151.68" r="6.4" fill="url(#seed-s2)"/><circle cx="141.51" cy="148.74" r="1.66" fill="oklch(0.97 0.03 30 / 0.7)"/></g>
+            <g><circle cx="162.8" cy="151.68" r="6.48" fill="url(#seed-s2)"/><circle cx="160.08" cy="148.7" r="1.69" fill="oklch(0.97 0.03 30 / 0.7)"/></g>
+            <g><circle cx="181.4" cy="151.68" r="6.55" fill="url(#seed-s2)"/><circle cx="178.65" cy="148.67" r="1.7" fill="oklch(0.97 0.03 30 / 0.7)"/></g>
+            <g><circle cx="200" cy="151.68" r="6.57" fill="url(#seed-s2)"/><circle cx="197.24" cy="148.66" r="1.71" fill="oklch(0.97 0.03 30 / 0.7)"/></g>
+            <g><circle cx="218.6" cy="151.68" r="6.55" fill="url(#seed-s2)"/><circle cx="215.85" cy="148.67" r="1.7" fill="oklch(0.97 0.03 30 / 0.7)"/></g>
+            <g><circle cx="237.2" cy="151.68" r="6.48" fill="url(#seed-s2)"/><circle cx="234.48" cy="148.7" r="1.69" fill="oklch(0.97 0.03 30 / 0.7)"/></g>
+            <g><circle cx="255.8" cy="151.68" r="6.4" fill="url(#seed-s2)"/><circle cx="253.11" cy="148.74" r="1.66" fill="oklch(0.97 0.03 30 / 0.7)"/></g>
+            <g><circle cx="293" cy="151.68" r="6.19" fill="url(#seed-s2)"/><circle cx="290.4" cy="148.83" r="1.61" fill="oklch(0.97 0.03 30 / 0.7)"/></g>
+            <g><circle cx="311.6" cy="151.68" r="6.07" fill="url(#seed-s2)"/><circle cx="309.05" cy="148.89" r="1.58" fill="oklch(0.97 0.03 30 / 0.7)"/></g>
+            <g><circle cx="79.1" cy="167.78" r="6.05" fill="url(#seed-s2)"/><circle cx="76.56" cy="165" r="1.57" fill="oklch(0.97 0.03 30 / 0.7)"/></g>
+            <g><circle cx="97.7" cy="167.78" r="6.17" fill="url(#seed-s2)"/><circle cx="95.11" cy="164.94" r="1.6" fill="oklch(0.97 0.03 30 / 0.7)"/></g>
+            <g><circle cx="116.3" cy="167.78" r="6.29" fill="url(#seed-s2)"/><circle cx="113.66" cy="164.89" r="1.64" fill="oklch(0.97 0.03 30 / 0.7)"/></g>
+            <g><circle cx="134.9" cy="167.78" r="6.4" fill="url(#seed-s2)"/><circle cx="132.21" cy="164.83" r="1.67" fill="oklch(0.97 0.03 30 / 0.7)"/></g>
+            <g><circle cx="153.5" cy="167.78" r="6.51" fill="url(#seed-s2)"/><circle cx="150.76" cy="164.78" r="1.69" fill="oklch(0.97 0.03 30 / 0.7)"/></g>
+            <g><circle cx="172.1" cy="167.78" r="6.61" fill="url(#seed-s2)"/><circle cx="169.32" cy="164.74" r="1.72" fill="oklch(0.97 0.03 30 / 0.7)"/></g>
+            <g><circle cx="227.9" cy="167.78" r="6.61" fill="url(#seed-s2)"/><circle cx="225.12" cy="164.74" r="1.72" fill="oklch(0.97 0.03 30 / 0.7)"/></g>
+            <g><circle cx="246.5" cy="167.78" r="6.51" fill="url(#seed-s2)"/><circle cx="243.76" cy="164.78" r="1.69" fill="oklch(0.97 0.03 30 / 0.7)"/></g>
+            <g><circle cx="265.1" cy="167.78" r="6.4" fill="url(#seed-s2)"/><circle cx="262.41" cy="164.83" r="1.67" fill="oklch(0.97 0.03 30 / 0.7)"/></g>
+            <g><circle cx="283.7" cy="167.78" r="6.29" fill="url(#seed-s2)"/><circle cx="281.06" cy="164.89" r="1.64" fill="oklch(0.97 0.03 30 / 0.7)"/></g>
+            <g><circle cx="302.3" cy="167.78" r="6.17" fill="url(#seed-s2)"/><circle cx="299.71" cy="164.94" r="1.6" fill="oklch(0.97 0.03 30 / 0.7)"/></g>
+            <g><circle cx="320.9" cy="167.78" r="6.05" fill="url(#seed-s2)"/><circle cx="318.36" cy="165" r="1.57" fill="oklch(0.97 0.03 30 / 0.7)"/></g>
+            <g><circle cx="69.8" cy="183.89" r="6.01" fill="url(#seed-s2)"/><circle cx="67.28" cy="181.13" r="1.56" fill="oklch(0.97 0.03 30 / 0.7)"/></g>
+            <g><circle cx="88.4" cy="183.89" r="6.13" fill="url(#seed-s2)"/><circle cx="85.82" cy="181.07" r="1.59" fill="oklch(0.97 0.03 30 / 0.7)"/></g>
+            <g><circle cx="107" cy="183.89" r="6.26" fill="url(#seed-s2)"/><circle cx="104.37" cy="181.01" r="1.63" fill="oklch(0.97 0.03 30 / 0.7)"/></g>
+            <g><circle cx="125.6" cy="183.89" r="6.38" fill="url(#seed-s2)"/><circle cx="122.92" cy="180.95" r="1.66" fill="oklch(0.97 0.03 30 / 0.7)"/></g>
+            <g><circle cx="144.2" cy="183.89" r="6.5" fill="url(#seed-s2)"/><circle cx="141.47" cy="180.9" r="1.69" fill="oklch(0.97 0.03 30 / 0.7)"/></g>
+            <g><circle cx="162.8" cy="183.89" r="6.62" fill="url(#seed-s2)"/><circle cx="160.02" cy="180.84" r="1.72" fill="oklch(0.97 0.03 30 / 0.7)"/></g>
+            <g><circle cx="237.2" cy="183.89" r="6.62" fill="url(#seed-s2)"/><circle cx="234.42" cy="180.84" r="1.72" fill="oklch(0.97 0.03 30 / 0.7)"/></g>
+            <g><circle cx="255.8" cy="183.89" r="6.5" fill="url(#seed-s2)"/><circle cx="253.07" cy="180.9" r="1.69" fill="oklch(0.97 0.03 30 / 0.7)"/></g>
+            <g><circle cx="274.4" cy="183.89" r="6.38" fill="url(#seed-s2)"/><circle cx="271.72" cy="180.95" r="1.66" fill="oklch(0.97 0.03 30 / 0.7)"/></g>
+            <g><circle cx="293" cy="183.89" r="6.26" fill="url(#seed-s2)"/><circle cx="290.37" cy="181.01" r="1.63" fill="oklch(0.97 0.03 30 / 0.7)"/></g>
+            <g><circle cx="311.6" cy="183.89" r="6.13" fill="url(#seed-s2)"/><circle cx="309.02" cy="181.07" r="1.59" fill="oklch(0.97 0.03 30 / 0.7)"/></g>
+            <g><circle cx="330.2" cy="183.89" r="6.01" fill="url(#seed-s2)"/><circle cx="327.68" cy="181.13" r="1.56" fill="oklch(0.97 0.03 30 / 0.7)"/></g>
+            <g><circle cx="79.1" cy="200" r="6.08" fill="url(#seed-s2)"/><circle cx="76.55" cy="197.21" r="1.58" fill="oklch(0.97 0.03 30 / 0.7)"/></g>
+            <g><circle cx="97.7" cy="200" r="6.2" fill="url(#seed-s2)"/><circle cx="95.09" cy="197.15" r="1.61" fill="oklch(0.97 0.03 30 / 0.7)"/></g>
+            <g><circle cx="116.3" cy="200" r="6.33" fill="url(#seed-s2)"/><circle cx="113.64" cy="197.09" r="1.65" fill="oklch(0.97 0.03 30 / 0.7)"/></g>
+            <g><circle cx="134.9" cy="200" r="6.46" fill="url(#seed-s2)"/><circle cx="132.19" cy="197.03" r="1.68" fill="oklch(0.97 0.03 30 / 0.7)"/></g>
+            <g><circle cx="153.5" cy="200" r="6.58" fill="url(#seed-s2)"/><circle cx="150.74" cy="196.97" r="1.71" fill="oklch(0.97 0.03 30 / 0.7)"/></g>
+            <g><circle cx="246.5" cy="200" r="6.58" fill="url(#seed-s2)"/><circle cx="243.74" cy="196.97" r="1.71" fill="oklch(0.97 0.03 30 / 0.7)"/></g>
+            <g><circle cx="265.1" cy="200" r="6.46" fill="url(#seed-s2)"/><circle cx="262.39" cy="197.03" r="1.68" fill="oklch(0.97 0.03 30 / 0.7)"/></g>
+            <g><circle cx="283.7" cy="200" r="6.33" fill="url(#seed-s2)"/><circle cx="281.04" cy="197.09" r="1.65" fill="oklch(0.97 0.03 30 / 0.7)"/></g>
+            <g><circle cx="302.3" cy="200" r="6.2" fill="url(#seed-s2)"/><circle cx="299.69" cy="197.15" r="1.61" fill="oklch(0.97 0.03 30 / 0.7)"/></g>
+            <g><circle cx="320.9" cy="200" r="6.08" fill="url(#seed-s2)"/><circle cx="318.35" cy="197.21" r="1.58" fill="oklch(0.97 0.03 30 / 0.7)"/></g>
+            <g><circle cx="69.8" cy="216.11" r="6.01" fill="url(#seed-s2)"/><circle cx="67.28" cy="213.35" r="1.56" fill="oklch(0.97 0.03 30 / 0.7)"/></g>
+            <g><circle cx="88.4" cy="216.11" r="6.13" fill="url(#seed-s2)"/><circle cx="85.82" cy="213.29" r="1.59" fill="oklch(0.97 0.03 30 / 0.7)"/></g>
+            <g><circle cx="107" cy="216.11" r="6.26" fill="url(#seed-s2)"/><circle cx="104.37" cy="213.23" r="1.63" fill="oklch(0.97 0.03 30 / 0.7)"/></g>
+            <g><circle cx="125.6" cy="216.11" r="6.38" fill="url(#seed-s2)"/><circle cx="122.92" cy="213.17" r="1.66" fill="oklch(0.97 0.03 30 / 0.7)"/></g>
+            <g><circle cx="144.2" cy="216.11" r="6.5" fill="url(#seed-s2)"/><circle cx="141.47" cy="213.12" r="1.69" fill="oklch(0.97 0.03 30 / 0.7)"/></g>
+            <g><circle cx="162.8" cy="216.11" r="6.62" fill="url(#seed-s2)"/><circle cx="160.02" cy="213.06" r="1.72" fill="oklch(0.97 0.03 30 / 0.7)"/></g>
+            <g><circle cx="237.2" cy="216.11" r="6.62" fill="url(#seed-s2)"/><circle cx="234.42" cy="213.06" r="1.72" fill="oklch(0.97 0.03 30 / 0.7)"/></g>
+            <g><circle cx="255.8" cy="216.11" r="6.5" fill="url(#seed-s2)"/><circle cx="253.07" cy="213.12" r="1.69" fill="oklch(0.97 0.03 30 / 0.7)"/></g>
+            <g><circle cx="274.4" cy="216.11" r="6.38" fill="url(#seed-s2)"/><circle cx="271.72" cy="213.17" r="1.66" fill="oklch(0.97 0.03 30 / 0.7)"/></g>
+            <g><circle cx="293" cy="216.11" r="6.26" fill="url(#seed-s2)"/><circle cx="290.37" cy="213.23" r="1.63" fill="oklch(0.97 0.03 30 / 0.7)"/></g>
+            <g><circle cx="311.6" cy="216.11" r="6.13" fill="url(#seed-s2)"/><circle cx="309.02" cy="213.29" r="1.59" fill="oklch(0.97 0.03 30 / 0.7)"/></g>
+            <g><circle cx="330.2" cy="216.11" r="6.01" fill="url(#seed-s2)"/><circle cx="327.68" cy="213.35" r="1.56" fill="oklch(0.97 0.03 30 / 0.7)"/></g>
+            <g><circle cx="79.1" cy="232.22" r="6.05" fill="url(#seed-s2)"/><circle cx="76.56" cy="229.44" r="1.57" fill="oklch(0.97 0.03 30 / 0.7)"/></g>
+            <g><circle cx="97.7" cy="232.22" r="6.17" fill="url(#seed-s2)"/><circle cx="95.11" cy="229.38" r="1.6" fill="oklch(0.97 0.03 30 / 0.7)"/></g>
+            <g><circle cx="116.3" cy="232.22" r="6.29" fill="url(#seed-s2)"/><circle cx="113.66" cy="229.33" r="1.64" fill="oklch(0.97 0.03 30 / 0.7)"/></g>
+            <g><circle cx="153.5" cy="232.22" r="6.51" fill="url(#seed-s2)"/><circle cx="150.76" cy="229.22" r="1.69" fill="oklch(0.97 0.03 30 / 0.7)"/></g>
+            <g><circle cx="172.1" cy="232.22" r="6.61" fill="url(#seed-s2)"/><circle cx="169.32" cy="229.18" r="1.72" fill="oklch(0.97 0.03 30 / 0.7)"/></g>
+            <g><circle cx="227.9" cy="232.22" r="6.61" fill="url(#seed-s2)"/><circle cx="225.12" cy="229.18" r="1.72" fill="oklch(0.97 0.03 30 / 0.7)"/></g>
+            <g><circle cx="246.5" cy="232.22" r="6.51" fill="url(#seed-s2)"/><circle cx="243.76" cy="229.22" r="1.69" fill="oklch(0.97 0.03 30 / 0.7)"/></g>
+            <g><circle cx="265.1" cy="232.22" r="6.4" fill="url(#seed-s2)"/><circle cx="262.41" cy="229.27" r="1.67" fill="oklch(0.97 0.03 30 / 0.7)"/></g>
+            <g><circle cx="283.7" cy="232.22" r="6.29" fill="url(#seed-s2)"/><circle cx="281.06" cy="229.33" r="1.64" fill="oklch(0.97 0.03 30 / 0.7)"/></g>
+            <g><circle cx="302.3" cy="232.22" r="6.17" fill="url(#seed-s2)"/><circle cx="299.71" cy="229.38" r="1.6" fill="oklch(0.97 0.03 30 / 0.7)"/></g>
+            <g><circle cx="320.9" cy="232.22" r="6.05" fill="url(#seed-s2)"/><circle cx="318.36" cy="229.44" r="1.57" fill="oklch(0.97 0.03 30 / 0.7)"/></g>
+            <g><circle cx="88.4" cy="248.32" r="6.07" fill="url(#seed-s2)"/><circle cx="85.85" cy="245.53" r="1.58" fill="oklch(0.97 0.03 30 / 0.7)"/></g>
+            <g><circle cx="107" cy="248.32" r="6.19" fill="url(#seed-s2)"/><circle cx="104.4" cy="245.47" r="1.61" fill="oklch(0.97 0.03 30 / 0.7)"/></g>
+            <g><circle cx="125.6" cy="248.32" r="6.3" fill="url(#seed-s2)"/><circle cx="122.96" cy="245.42" r="1.64" fill="oklch(0.97 0.03 30 / 0.7)"/></g>
+            <g><circle cx="144.2" cy="248.32" r="6.4" fill="url(#seed-s2)"/><circle cx="141.51" cy="245.38" r="1.66" fill="oklch(0.97 0.03 30 / 0.7)"/></g>
+            <g><circle cx="162.8" cy="248.32" r="6.48" fill="url(#seed-s2)"/><circle cx="160.08" cy="245.34" r="1.69" fill="oklch(0.97 0.03 30 / 0.7)"/></g>
+            <g><circle cx="181.4" cy="248.32" r="6.55" fill="url(#seed-s2)"/><circle cx="178.65" cy="245.31" r="1.7" fill="oklch(0.97 0.03 30 / 0.7)"/></g>
+            <g><circle cx="200" cy="248.32" r="6.57" fill="url(#seed-s2)"/><circle cx="197.24" cy="245.3" r="1.71" fill="oklch(0.97 0.03 30 / 0.7)"/></g>
+            <g><circle cx="218.6" cy="248.32" r="6.55" fill="url(#seed-s2)"/><circle cx="215.85" cy="245.31" r="1.7" fill="oklch(0.97 0.03 30 / 0.7)"/></g>
+            <g><circle cx="255.8" cy="248.32" r="6.4" fill="url(#seed-s2)"/><circle cx="253.11" cy="245.38" r="1.66" fill="oklch(0.97 0.03 30 / 0.7)"/></g>
+            <g><circle cx="274.4" cy="248.32" r="6.3" fill="url(#seed-s2)"/><circle cx="271.76" cy="245.42" r="1.64" fill="oklch(0.97 0.03 30 / 0.7)"/></g>
+            <g><circle cx="293" cy="248.32" r="6.19" fill="url(#seed-s2)"/><circle cx="290.4" cy="245.47" r="1.61" fill="oklch(0.97 0.03 30 / 0.7)"/></g>
+            <g><circle cx="97.7" cy="264.43" r="6.08" fill="url(#seed-s2)"/><circle cx="95.15" cy="261.64" r="1.58" fill="oklch(0.97 0.03 30 / 0.7)"/></g>
+            <g><circle cx="116.3" cy="264.43" r="6.18" fill="url(#seed-s2)"/><circle cx="113.7" cy="261.59" r="1.61" fill="oklch(0.97 0.03 30 / 0.7)"/></g>
+            <g><circle cx="134.9" cy="264.43" r="6.28" fill="url(#seed-s2)"/><circle cx="132.26" cy="261.54" r="1.63" fill="oklch(0.97 0.03 30 / 0.7)"/></g>
+            <g><circle cx="153.5" cy="264.43" r="6.36" fill="url(#seed-s2)"/><circle cx="150.83" cy="261.51" r="1.65" fill="oklch(0.97 0.03 30 / 0.7)"/></g>
+            <g><circle cx="172.1" cy="264.43" r="6.42" fill="url(#seed-s2)"/><circle cx="169.4" cy="261.48" r="1.67" fill="oklch(0.97 0.03 30 / 0.7)"/></g>
+            <g><circle cx="190.7" cy="264.43" r="6.46" fill="url(#seed-s2)"/><circle cx="187.99" cy="261.46" r="1.68" fill="oklch(0.97 0.03 30 / 0.7)"/></g>
+            <g><circle cx="209.3" cy="264.43" r="6.46" fill="url(#seed-s2)"/><circle cx="206.59" cy="261.46" r="1.68" fill="oklch(0.97 0.03 30 / 0.7)"/></g>
+            <g><circle cx="227.9" cy="264.43" r="6.42" fill="url(#seed-s2)"/><circle cx="225.2" cy="261.48" r="1.67" fill="oklch(0.97 0.03 30 / 0.7)"/></g>
+            <g><circle cx="246.5" cy="264.43" r="6.36" fill="url(#seed-s2)"/><circle cx="243.83" cy="261.51" r="1.65" fill="oklch(0.97 0.03 30 / 0.7)"/></g>
+            <g><circle cx="265.1" cy="264.43" r="6.28" fill="url(#seed-s2)"/><circle cx="262.46" cy="261.54" r="1.63" fill="oklch(0.97 0.03 30 / 0.7)"/></g>
+            <g><circle cx="283.7" cy="264.43" r="6.18" fill="url(#seed-s2)"/><circle cx="281.1" cy="261.59" r="1.61" fill="oklch(0.97 0.03 30 / 0.7)"/></g>
+            <g><circle cx="302.3" cy="264.43" r="6.08" fill="url(#seed-s2)"/><circle cx="299.75" cy="261.64" r="1.58" fill="oklch(0.97 0.03 30 / 0.7)"/></g>
+            <g><circle cx="107" cy="280.54" r="6.06" fill="url(#seed-s2)"/><circle cx="104.45" cy="277.75" r="1.58" fill="oklch(0.97 0.03 30 / 0.7)"/></g>
+            <g><circle cx="125.6" cy="280.54" r="6.15" fill="url(#seed-s2)"/><circle cx="123.02" cy="277.71" r="1.6" fill="oklch(0.97 0.03 30 / 0.7)"/></g>
+            <g><circle cx="144.2" cy="280.54" r="6.23" fill="url(#seed-s2)"/><circle cx="141.58" cy="277.67" r="1.62" fill="oklch(0.97 0.03 30 / 0.7)"/></g>
+            <g><circle cx="162.8" cy="280.54" r="6.3" fill="url(#seed-s2)"/><circle cx="160.16" cy="277.64" r="1.64" fill="oklch(0.97 0.03 30 / 0.7)"/></g>
+            <g><circle cx="181.4" cy="280.54" r="6.34" fill="url(#seed-s2)"/><circle cx="178.74" cy="277.63" r="1.65" fill="oklch(0.97 0.03 30 / 0.7)"/></g>
+            <g><circle cx="200" cy="280.54" r="6.35" fill="url(#seed-s2)"/><circle cx="197.33" cy="277.62" r="1.65" fill="oklch(0.97 0.03 30 / 0.7)"/></g>
+            <g><circle cx="218.6" cy="280.54" r="6.34" fill="url(#seed-s2)"/><circle cx="215.94" cy="277.63" r="1.65" fill="oklch(0.97 0.03 30 / 0.7)"/></g>
+            <g><circle cx="237.2" cy="280.54" r="6.3" fill="url(#seed-s2)"/><circle cx="234.56" cy="277.64" r="1.64" fill="oklch(0.97 0.03 30 / 0.7)"/></g>
+            <g><circle cx="255.8" cy="280.54" r="6.23" fill="url(#seed-s2)"/><circle cx="253.18" cy="277.67" r="1.62" fill="oklch(0.97 0.03 30 / 0.7)"/></g>
+            <g><circle cx="274.4" cy="280.54" r="6.15" fill="url(#seed-s2)"/><circle cx="271.82" cy="277.71" r="1.6" fill="oklch(0.97 0.03 30 / 0.7)"/></g>
+            <g><circle cx="293" cy="280.54" r="6.06" fill="url(#seed-s2)"/><circle cx="290.45" cy="277.75" r="1.58" fill="oklch(0.97 0.03 30 / 0.7)"/></g>
+            <g><circle cx="116.3" cy="296.65" r="6.03" fill="url(#seed-s2)"/><circle cx="113.77" cy="293.88" r="1.57" fill="oklch(0.97 0.03 30 / 0.7)"/></g>
+            <g><circle cx="134.9" cy="296.65" r="6.11" fill="url(#seed-s2)"/><circle cx="132.34" cy="293.84" r="1.59" fill="oklch(0.97 0.03 30 / 0.7)"/></g>
+            <g><circle cx="153.5" cy="296.65" r="6.17" fill="url(#seed-s2)"/><circle cx="150.91" cy="293.81" r="1.6" fill="oklch(0.97 0.03 30 / 0.7)"/></g>
+            <g><circle cx="172.1" cy="296.65" r="6.21" fill="url(#seed-s2)"/><circle cx="169.49" cy="293.79" r="1.62" fill="oklch(0.97 0.03 30 / 0.7)"/></g>
+            <g><circle cx="190.7" cy="296.65" r="6.24" fill="url(#seed-s2)"/><circle cx="188.08" cy="293.78" r="1.62" fill="oklch(0.97 0.03 30 / 0.7)"/></g>
+            <g><circle cx="209.3" cy="296.65" r="6.24" fill="url(#seed-s2)"/><circle cx="206.68" cy="293.78" r="1.62" fill="oklch(0.97 0.03 30 / 0.7)"/></g>
+            <g><circle cx="227.9" cy="296.65" r="6.21" fill="url(#seed-s2)"/><circle cx="225.29" cy="293.79" r="1.62" fill="oklch(0.97 0.03 30 / 0.7)"/></g>
+            <g><circle cx="246.5" cy="296.65" r="6.17" fill="url(#seed-s2)"/><circle cx="243.91" cy="293.81" r="1.6" fill="oklch(0.97 0.03 30 / 0.7)"/></g>
+            <g><circle cx="265.1" cy="296.65" r="6.11" fill="url(#seed-s2)"/><circle cx="262.54" cy="293.84" r="1.59" fill="oklch(0.97 0.03 30 / 0.7)"/></g>
+            <g><circle cx="283.7" cy="296.65" r="6.03" fill="url(#seed-s2)"/><circle cx="281.17" cy="293.88" r="1.57" fill="oklch(0.97 0.03 30 / 0.7)"/></g>
+            <g><circle cx="144.2" cy="312.75" r="6.04" fill="url(#seed-s2)"/><circle cx="141.66" cy="309.97" r="1.57" fill="oklch(0.97 0.03 30 / 0.7)"/></g>
+            <g><circle cx="162.8" cy="312.75" r="6.09" fill="url(#seed-s2)"/><circle cx="160.24" cy="309.95" r="1.58" fill="oklch(0.97 0.03 30 / 0.7)"/></g>
+            <g><circle cx="200" cy="312.75" r="6.13" fill="url(#seed-s2)"/><circle cx="197.42" cy="309.93" r="1.59" fill="oklch(0.97 0.03 30 / 0.7)"/></g>
+            <g><circle cx="218.6" cy="312.75" r="6.12" fill="url(#seed-s2)"/><circle cx="216.03" cy="309.93" r="1.59" fill="oklch(0.97 0.03 30 / 0.7)"/></g>
+            <g><circle cx="237.2" cy="312.75" r="6.09" fill="url(#seed-s2)"/><circle cx="234.64" cy="309.95" r="1.58" fill="oklch(0.97 0.03 30 / 0.7)"/></g>
+            <g><circle cx="255.8" cy="312.75" r="6.04" fill="url(#seed-s2)"/><circle cx="253.26" cy="309.97" r="1.57" fill="oklch(0.97 0.03 30 / 0.7)"/></g>
+                <!-- highlighted node-seeds -->
+            <g filter="url(#glow-s2)"><circle cx="144.2" cy="87.25" r="6.64" fill="url(#seedBright-s2)"/><circle cx="141.66" cy="84.47" r="1.69" fill="oklch(0.99 0.02 60 / 0.85)"/></g>
+            <g filter="url(#glow-s2)"><circle cx="190.7" cy="135.57" r="7.06" fill="url(#seedBright-s2)"/><circle cx="187.99" cy="132.6" r="1.81" fill="oklch(0.99 0.02 60 / 0.85)"/></g>
+            <g filter="url(#glow-s2)"><circle cx="125.6" cy="151.68" r="6.9" fill="url(#seedBright-s2)"/><circle cx="122.96" cy="148.78" r="1.76" fill="oklch(0.99 0.02 60 / 0.85)"/></g>
+            <g filter="url(#glow-s2)"><circle cx="274.4" cy="151.68" r="6.9" fill="url(#seedBright-s2)"/><circle cx="271.76" cy="148.78" r="1.76" fill="oklch(0.99 0.02 60 / 0.85)"/></g>
+            <g filter="url(#glow-s2)"><circle cx="134.9" cy="232.22" r="7" fill="url(#seedBright-s2)"/><circle cx="132.21" cy="229.27" r="1.79" fill="oklch(0.99 0.02 60 / 0.85)"/></g>
+            <g filter="url(#glow-s2)"><circle cx="237.2" cy="248.32" r="7.08" fill="url(#seedBright-s2)"/><circle cx="234.48" cy="245.34" r="1.82" fill="oklch(0.99 0.02 60 / 0.85)"/></g>
+            <g filter="url(#glow-s2)"><circle cx="311.6" cy="248.32" r="6.67" fill="url(#seedBright-s2)"/><circle cx="309.05" cy="245.53" r="1.7" fill="oklch(0.99 0.02 60 / 0.85)"/></g>
+            <g filter="url(#glow-s2)"><circle cx="181.4" cy="312.75" r="6.72" fill="url(#seedBright-s2)"/><circle cx="178.83" cy="309.93" r="1.71" fill="oklch(0.99 0.02 60 / 0.85)"/></g>
+                <!-- inner shadow vignette -->
+                <circle cx="200" cy="200" r="148" fill="url(#vign-s2)"/>
+              </g>
+
+              <!-- central hub: one source of context -->
+              <g filter="url(#hubGlow-s2)">
+                <circle cx="200" cy="200" r="27" fill="url(#hub-s2)"/>
+                <circle cx="200" cy="200" r="27" fill="none" stroke="oklch(0.99 0.03 50)" stroke-width="1.6" opacity="0.8"/>
+                <circle cx="200" cy="200" r="34" fill="none" stroke="oklch(0.78 0.18 30)" stroke-width="1.4" opacity="0.45"/>
+                <circle cx="192" cy="192" r="8.5" fill="oklch(0.99 0.02 60 / 0.85)"/>
+              </g>
+            </svg>
