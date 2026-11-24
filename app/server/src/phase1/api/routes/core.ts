@@ -6,6 +6,11 @@ import { readWorkspaceText, writeWorkspaceFile } from '../../files/sealed-files.
 import { detectInjection, injectionCheckEnabled } from '../../../lib/injection-check.js';
 import { viewerMayRequest } from '../../governance.js';
 import { MediaService, MediaError } from '../../data-agents/media-service.js';
+import {
+  RedactionUnavailableError,
+  redactFailOpen,
+  type RedactionUnavailableReason,
+} from '../../ingest/redaction-error.js';
 import { mediaProvenance } from '../../data-agents/context.js';
 import type { MiddlewareHandler, Context } from 'hono';
 import type { CustomerAuditEvent, PendingRouteViewer } from '../../db/repo.js';
@@ -762,7 +767,13 @@ async function storeShapePolicy(ws: string): Promise<string | undefined> {
 // target includes the stored source scrub the document TEXT itself before it is
 // persisted and captured — so PII/etc. is removed from the on-disk source too,
 // not just the extracted nodes. Guarded to a size the small model can redact in
-// a single call; larger docs are left unchanged (logged) rather than truncated.
+// a single call.
+//
+// FAILS CLOSED: when a rule applies but the scrub cannot run (no redactor, text
+// over the size guard, or the redactor throws), this throws
+// RedactionUnavailableError and the ingest stops before anything is stored,
+// routed or captured. POMEGRANATE_REDACT_FAIL_OPEN=1 restores the old
+// behaviour (store the original, warn). No applicable rule → unchanged.
 const SOURCE_REDACT_MAX_CHARS = 20000;
 async function redactSourceText(ws: string, text: string): Promise<{ text: string; changed: boolean }> {
   const rules = (await listShapeAutomations(ws)).filter(
@@ -772,10 +783,18 @@ async function redactSourceText(ws: string, text: string): Promise<{ text: strin
       (r.action === 'shape' || r.action === null) &&
       (r.target === 'source' || r.target === 'both'),
   );
-  if (rules.length === 0 || !synth.redactFields || !text.trim()) return { text, changed: false };
+  if (rules.length === 0 || !text.trim()) return { text, changed: false };
+  const refuse = (reason: RedactionUnavailableReason, event: string, fields: Record<string, unknown> = {}) => {
+    if (redactFailOpen()) {
+      log.warn(event, { workspace: ws, ...fields, fail_open: true });
+      return { text, changed: false };
+    }
+    log.warn('rule_redact.source_refused', { workspace: ws, reason, ...fields });
+    throw new RedactionUnavailableError(reason);
+  };
+  if (!synth.redactFields) return refuse('unavailable', 'rule_redact.source_skipped_no_redactor');
   if (text.length > SOURCE_REDACT_MAX_CHARS) {
-    log.warn('rule_redact.source_skipped_too_long', { workspace: ws, chars: text.length });
-    return { text, changed: false };
+    return refuse('too_long', 'rule_redact.source_skipped_too_long', { chars: text.length });
   }
   try {
     const { fields, changed } = await synth.redactFields({
@@ -784,8 +803,7 @@ async function redactSourceText(ws: string, text: string): Promise<{ text: strin
     });
     return { text: changed ? (fields.text ?? text) : text, changed };
   } catch (err) {
-    log.warn('rule_redact.source_failed_open', { workspace: ws, msg: (err as Error).message?.slice(0, 200) });
-    return { text, changed: false };
+    return refuse('failed', 'rule_redact.source_failed_open', { msg: (err as Error).message?.slice(0, 200) });
   }
 }
 
@@ -2608,7 +2626,17 @@ async function runInstructedIngest(opts: {
         forcedSubgraph: opts.forcedSubgraph,
       }),
   );
-  const ingestReceipt = result.receipts.find((r) => r.tool === 'ingest_document');
+  const ingestReceipt = result.receipts.find((r) => r.tool === 'ingest_document' && r.ok);
+  // The agent's ingest_document call hit a fail-closed source-redaction rule
+  // and nothing else was filed: surface the refusal to the caller (422) rather
+  // than a 200 with the agent's prose about it.
+  const refused = result.receipts.find(
+    (r) => r.tool === 'ingest_document' && !r.ok && r.result.error === 'redaction_unavailable',
+  );
+  if (!ingestReceipt && refused) {
+    const reason = refused.result.reason;
+    throw new RedactionUnavailableError(reason === 'too_long' || reason === 'unavailable' ? reason : 'failed');
+  }
   const subfolderReceipt = result.receipts.find((r) => r.tool === 'create_subfolder');
   return {
     message: result.message,

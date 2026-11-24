@@ -168,6 +168,9 @@ export async function sendMail(opts: {
   subject: string;
   text: string;
 }): Promise<void> {
+  // Envelope addresses go straight into MAIL FROM / RCPT TO command lines.
+  assertHeaderSafe('from', opts.config.from);
+  assertHeaderSafe('to', opts.to);
   const message = buildMessage({
     from: opts.config.from,
     to: opts.to,
@@ -177,13 +180,57 @@ export async function sendMail(opts: {
   await deliver(opts.config, opts.to, message);
 }
 
+/**
+ * Reject a CR or LF in an address. Addresses are interpolated into header lines
+ * and SMTP command lines, so a line break would let the value inject extra
+ * headers or commands. These come from config or user records: refuse rather
+ * than repair.
+ */
+export function assertHeaderSafe(field: string, value: string): void {
+  if (/[\r\n]/.test(value)) throw new Error(`invalid ${field} address: contains a line break`);
+}
+
+/**
+ * A subject safe for one header line: any CR/LF run becomes a single space
+ * (subjects carry workspace names, which are user text).
+ */
+export function sanitizeSubject(subject: string): string {
+  return subject.replace(/[\r\n]+/g, ' ');
+}
+
+const ENCODED_WORD = /=\?[^?\s]+\?[BbQq]\?[^?\s]*\?=/;
+
+/**
+ * RFC 2047 encode a non-ASCII subject as UTF-8 base64 encoded-words, folded so
+ * each stays within the 75-char limit. Plain printable ASCII, and a subject
+ * that already carries an encoded-word, are left as they are.
+ */
+export function encodeSubject(subject: string): string {
+  const clean = sanitizeSubject(subject);
+  if (/^[\x20-\x7e\t]*$/.test(clean) || ENCODED_WORD.test(clean)) return clean;
+  // 45 bytes of UTF-8 → 60 base64 chars, + 12 for "=?UTF-8?B?" and "?=" = 72.
+  const words: string[] = [];
+  let chunk = '';
+  for (const ch of clean) {
+    if (Buffer.byteLength(chunk + ch, 'utf8') > 45) {
+      words.push(chunk);
+      chunk = '';
+    }
+    chunk += ch;
+  }
+  if (chunk) words.push(chunk);
+  return words.map((w) => `=?UTF-8?B?${Buffer.from(w, 'utf8').toString('base64')}?=`).join('\r\n ');
+}
+
 /** RFC 5322 message with CRLF line endings and dot-stuffing handled by deliver(). */
-function buildMessage(opts: { from: string; to: string; subject: string; body: string }): string {
+export function buildMessage(opts: { from: string; to: string; subject: string; body: string }): string {
+  assertHeaderSafe('from', opts.from);
+  assertHeaderSafe('to', opts.to);
   const date = new Date().toUTCString();
   const headers = [
     `From: ${opts.from}`,
     `To: ${opts.to}`,
-    `Subject: ${opts.subject}`,
+    `Subject: ${encodeSubject(opts.subject)}`,
     `Date: ${date}`,
     'MIME-Version: 1.0',
     'Content-Type: text/plain; charset=utf-8',
@@ -196,6 +243,10 @@ function buildMessage(opts: { from: string; to: string; subject: string; body: s
 type Sock = net.Socket | tls.TLSSocket;
 
 function deliver(config: SmtpConfig, to: string, message: string): Promise<void> {
+  // Envelope addresses become MAIL FROM / RCPT TO command lines: checked here,
+  // before connecting, never inside the socket handlers.
+  assertHeaderSafe('envelope from', config.from);
+  assertHeaderSafe('envelope to', to);
   return new Promise<void>((resolve, reject) => {
     let active: Sock = config.secure
       ? tls.connect({ host: config.host, port: config.port, servername: config.host })

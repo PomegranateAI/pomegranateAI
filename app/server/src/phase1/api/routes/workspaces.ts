@@ -3,6 +3,7 @@
 // shared helpers come from createRouteCore() in ./core.ts.
 
 import { z } from 'zod';
+import { displayName } from '../../lib/display-name.js';
 import * as path from 'node:path';
 import { listBuiltinProfiles, getBuiltinProfile, DEFAULT_PROFILE_ID } from '../../../lib/profiles/index.js';
 import { log } from '../../../lib/log.js';
@@ -30,7 +31,8 @@ app.post('/workspaces', authn, async (c) => {
   const body = await c.req.json();
   const parsed = z
     .object({
-      name: z.string().min(1),
+      // No control characters: the name reaches email subjects (access requests).
+      name: displayName(),
       profile_id: z.string().optional(),
       // Multi-subgraph onboarding: one or more profiles. First becomes the
       // 'default' subgraph; the rest each get their own subgraph. Falls back

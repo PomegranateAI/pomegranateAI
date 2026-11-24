@@ -1,6 +1,7 @@
 import { registerMediaRoutes } from '../data-agents/routes.js';
 import { bodyLimit } from 'hono/body-limit';
 import { withMediaProvenance } from '../data-agents/context.js';
+import { RedactionUnavailableError } from '../ingest/redaction-error.js';
 import { Hono } from 'hono';
 import type { MiddlewareHandler } from 'hono';
 import { cors } from 'hono/cors';
@@ -162,6 +163,9 @@ app.use('*', async (c, next) => {
 });
 
 app.onError((err, c) => {
+  // A fail-closed source-redaction refusal (see redactSourceText) is a clean,
+  // expected outcome for every ingest entry point, not an internal error.
+  if (err instanceof RedactionUnavailableError) return c.json(err.body(), 422);
   const path = new URL(c.req.url).pathname;
   log.error('api.uncaught', {
     method: c.req.method,

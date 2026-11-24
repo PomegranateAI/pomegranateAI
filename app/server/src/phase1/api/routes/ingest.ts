@@ -5,6 +5,7 @@
 import { writeWorkspaceFile } from '../../files/sealed-files.js';
 import { validateMedia } from '../../data-agents/validate-media.js';
 import { MediaError } from '../../data-agents/media-service.js';
+import { RedactionUnavailableError } from '../../ingest/redaction-error.js';
 import { mediaMime, isMediaFilename } from '../../data-agents/media-types.js';
 import { withMediaProvenance } from '../../data-agents/context.js';
 import { z } from 'zod';
@@ -164,6 +165,9 @@ app.post('/workspaces/:ws/ingest/file', authn, workspaceGate, async (c) => {
       try {
         return c.json(await media.runIngest(ws, job, user_id));
       } catch (error) {
+        if (error instanceof RedactionUnavailableError) {
+          return c.json({ ...error.body(), job_id: job, asset_id: asset.id }, 422);
+        }
         return c.json(
           {
             error: error instanceof MediaError ? error.code : 'media_processing_failed',

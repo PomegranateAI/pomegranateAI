@@ -1,4 +1,5 @@
 import { sealingAssetStore } from '../files/sealed-files.js';
+import { RedactionUnavailableError } from '../ingest/redaction-error.js';
 import { createHash } from 'node:crypto';
 import type { Repo } from '../db/repo.js';
 import { assetStores, type AssetStore } from './asset-store.js';
@@ -246,7 +247,7 @@ export class MediaService {
       await this.repo.completeMediaIngestJob(JSON.stringify(receipt), new Date().toISOString(), ws, id);
       return receipt;
     } catch (error) {
-      await this.repo.failMediaIngestJob(error instanceof MediaError ? error.code : 'media_processing_failed', Date.now() + 60_000, new Date().toISOString(), ws, id);
+      await this.repo.failMediaIngestJob(error instanceof MediaError || error instanceof RedactionUnavailableError ? error.code : 'media_processing_failed', Date.now() + 60_000, new Date().toISOString(), ws, id);
       throw error;
     }
   }

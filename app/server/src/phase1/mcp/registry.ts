@@ -43,6 +43,7 @@ import { validateNode, validateReviewKind } from '../../lib/profile-validate.js'
 import { log } from '../../lib/log.js';
 import { emailDomain } from '../../lib/email-domain.js';
 import { ToolError } from './errors.js';
+import { RedactionUnavailableError } from '../ingest/redaction-error.js';
 import { resolveFolderRef, resolveFolderRefUngated } from './folder-resolve.js';
 import { withGovernance } from '../governance.js';
 import { nodeIdsOf } from '../db/repo/shared.js';
@@ -1656,6 +1657,9 @@ export function createTools(deps: McpDeps): ToolDef[] {
               return { filed_to: await filedTo(ctx.ws, result.document_id), agent: true, ...result };
             }
           } catch (err) {
+            // A fail-closed redaction refusal is not a cleanup hiccup: the
+            // plain path below would refuse the same text, so stop here.
+            if (err instanceof RedactionUnavailableError) throw new ToolError('redaction_unavailable', 422, { reason: err.reason, detail: err.detail });
             // The cleanup agent is best-effort (a slow/erroring provider call,
             // or a document over MAX_CLEANUP_SOURCE_CHARS — see
             // add-source-agent.ts) and must never cost the document its
@@ -1691,6 +1695,13 @@ export function createTools(deps: McpDeps): ToolDef[] {
           audience: args.audience,
           fallbackAudience: ctx.fallback_audience,
           forcedSubgraphId,
+        }).catch((err: unknown) => {
+          // A store rule requires redaction that could not run: nothing was
+          // stored. Same code and wording as the REST 422.
+          if (err instanceof RedactionUnavailableError) {
+            throw new ToolError('redaction_unavailable', 422, { reason: err.reason, detail: err.detail });
+          }
+          throw err;
         });
         await deps.repo.logAudit(ctx.ws, {
           actor: ctx.user_id,

@@ -18,7 +18,8 @@ export class ToolError extends Error {
       | 'not_supported'
       | 'forbidden'
       | 'not_your_route'
-      | 'ambiguous',
+      | 'ambiguous'
+      | 'redaction_unavailable',
     readonly httpStatus: 400 | 403 | 404 | 409 | 422 | 501,
     readonly extra: Record<string, unknown> = {},
   ) {

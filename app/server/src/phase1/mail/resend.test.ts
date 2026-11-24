@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { resendConfigFromEnv, sendMagicLinkViaResend } from './resend.js';
+import { resendConfigFromEnv, sendMagicLinkViaResend, sendMailViaResend } from './resend.js';
 
 describe('resendConfigFromEnv', () => {
   it('returns null when RESEND_API_KEY is unset or blank (dev/SMTP fallback)', () => {
@@ -51,5 +51,35 @@ describe('sendMagicLinkViaResend', () => {
         fetchImpl: fetchImpl as unknown as typeof fetch,
       }),
     ).rejects.toThrow(/Resend 401: invalid api key/);
+  });
+});
+
+describe('sendMailViaResend header guards', () => {
+  const config = { apiKey: 're_test_123', from: 'Pomegranate <noreply@example.com>' };
+
+  it('rejects a CRLF recipient before calling the API', async () => {
+    const fetchImpl = vi.fn();
+    await expect(
+      sendMailViaResend({
+        config,
+        to: 'a@x.test\r\nBcc: v@evil.test',
+        subject: 's',
+        text: 't',
+        fetchImpl: fetchImpl as unknown as typeof fetch,
+      }),
+    ).rejects.toThrow(/line break/);
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it('flattens CRLF in the subject', async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(new Response('{"id":"x"}', { status: 200 }));
+    await sendMailViaResend({
+      config,
+      to: 'a@x.test',
+      subject: 'Hi\r\nBcc: v@evil.test',
+      text: 't',
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+    });
+    expect(JSON.parse(fetchImpl.mock.calls[0][1].body).subject).toBe('Hi Bcc: v@evil.test');
   });
 });

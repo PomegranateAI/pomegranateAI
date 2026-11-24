@@ -458,14 +458,19 @@ app.post('/workspaces/:ws/automations/:id/run-now', authn, workspaceGate, async 
   };
   const pull = await dispatchAppsRoute(authHeader, 'POST', `/workspaces/${ws}/apps/${automation.connector}/pull`, pullBody);
   if (pull.status !== 200) {
+    const code = pull.json?.error ?? `pull failed (${pull.status})`;
+    const redaction = code === 'redaction_unavailable' && typeof pull.json?.detail === 'string';
     const run = await repo.recordAutomationRun(ws, {
       automation_id: automation.id,
       trigger: 'manual_run',
       outcome: 'error',
       items_seen: items.length,
-      error: pull.json?.error ?? `pull failed (${pull.status})`,
+      error: redaction ? `${code}: ${pull.json.detail}` : code,
     });
-    return c.json({ error: pull.json?.error ?? 'pull_failed', run }, pull.status as any);
+    return c.json(
+      { error: pull.json?.error ?? 'pull_failed', ...(redaction ? { reason: pull.json.reason, detail: pull.json.detail } : {}), run },
+      pull.status as any,
+    );
   }
 
   const results = (pull.json.results ?? []) as Array<{ document_id: string; candidates: number }>;
