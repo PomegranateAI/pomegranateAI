@@ -135,6 +135,34 @@ function scopeMatches(candidate: string, want: string): boolean {
   return short.length >= 8 && long.startsWith(short);
 }
 
+// ---------- page audience ----------
+
+/**
+ * Who a page's generated content is for, which decides which sources may feed
+ * it (a page must never reproduce material its readers couldn't open):
+ *   - a 'team' page (or no visibility set) → `{ teamOnly: true }`: only notes
+ *     with visibility='team' and documents every workspace member may see;
+ *   - a 'private' / 'only_me' page → its owner's AI-read view: team material
+ *     plus the owner's own private notes/documents, never 'only_me' (which is
+ *     human-eyes-only and excluded from every LLM read, even the owner's).
+ * A private/only_me page with no recorded owner fails closed to team-only.
+ */
+export type PageAudience = { teamOnly: true } | { viewer: string; aiRead: true };
+
+export function pageAudience(page: Pick<WikiPage, 'visibility' | 'owner_user_id'>): PageAudience {
+  if ((page.visibility === 'private' || page.visibility === 'only_me') && page.owner_user_id) {
+    return { viewer: page.owner_user_id, aiRead: true };
+  }
+  return { teamOnly: true };
+}
+
+/** May this page's audience read document `docId`? (documentVisibilityFilter.) */
+async function docVisibleToAudience(repo: Repo, workspace_id: string, docId: string, audience: PageAudience): Promise<boolean> {
+  return 'teamOnly' in audience
+    ? repo.documentVisibleToViewer(workspace_id, docId, undefined, true, { teamOnly: true })
+    : repo.documentVisibleToViewer(workspace_id, docId, audience.viewer, true);
+}
+
 /**
  * Candidate nodes for a page: origin-document nodes ∪ anchor-scope nodes, then a
  * tolerant one-hop edge walk. `in_document` is true only for the origin-doc
@@ -155,7 +183,10 @@ export async function gatherPageNodes(
     for (const id of await repo.listNodeIdsByDocumentEvidence(workspace_id, docId)) originIds.add(id);
   }
 
-  const all = await repo.listNodes(workspace_id, { activeOnly: true, teamOnly: true }, subgraph_id);
+  // Only nodes the page's audience may see (pageAudience): a team page never
+  // draws on a member's private notes, even ones linked to its source docs or
+  // reached by the edge walk — both are filtered through `byId` below.
+  const all = await repo.listNodes(workspace_id, { activeOnly: true, ...pageAudience(page) }, subgraph_id);
   const byId = new Map(all.map((n) => [n.id, n]));
 
   const seed = new Set<string>(originIds);
@@ -226,7 +257,8 @@ export async function gatherPageNodes(
  * page, which is what surfaced as "the wiki has content from other subfolders".
  * Conservative: a doc with NO routing rows at all is kept (pre-routing ingests
  * have none, and dropping them would blank legitimate pages); a doc explicitly
- * routed to other subfolders but not this one is dropped.
+ * routed to other subfolders but not this one is dropped. A doc the page's
+ * audience can't see (pageAudience) is dropped too.
  */
 async function scopedSourceDocIds(
   repo: Repo,
@@ -236,10 +268,15 @@ async function scopedSourceDocIds(
 ): Promise<string[]> {
   const ids = page.source_doc_ids ?? [];
   if (ids.length === 0) return ids;
+  const audience = pageAudience(page);
   const out: string[] = [];
   for (const docId of ids) {
     const routes = await repo.listDocumentSubgraphs(workspace_id, docId);
-    if (routes.length === 0 || routes.some((r) => r.subgraph_id === subgraph_id)) out.push(docId);
+    if (!(routes.length === 0 || routes.some((r) => r.subgraph_id === subgraph_id))) continue;
+    // Audience scope: a doc the page's readers may not open is silently skipped
+    // (its text and origin nodes never reach the fill) — see pageAudience.
+    if (!(await docVisibleToAudience(repo, workspace_id, docId, audience))) continue;
+    out.push(docId);
   }
   return out;
 }
@@ -259,7 +296,11 @@ async function loadSourceText(
   const ids = page.source_doc_ids ?? [];
   if (ids.length === 0) return null;
   const parts: string[] = [];
+  const audience = pageAudience(page);
   for (const docId of ids) {
+    // Defence in depth: callers pass a scoped page, but never read a source's
+    // full text unless the page's audience may read that document.
+    if (!(await docVisibleToAudience(repo, workspace_id, docId, audience))) continue;
     const doc = await repo.getDocument(workspace_id, docId);
     if (!doc) continue;
     try {

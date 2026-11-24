@@ -424,10 +424,30 @@ export class GraphRepo {
    * `aiRead` excludes the viewer's own only_me material, as for nodes.
    * Returns an `AND (...)` fragment over a `documents` table aliased `alias`.
    * No viewer → no filter (system reads + the single-user local engine).
+   *
+   * `teamOnly` → what EVERY workspace member may see, independent of any
+   * viewer (it takes precedence over `viewer`): a document with ≥1 team note,
+   * or a note-less document ingested as 'team' (or a legacy row with no
+   * recorded ingester) that no pending private/only_me route is holding. Used
+   * for team-audience generated content (wiki plan/fill of team pages).
    */
-  documentVisibilityFilter(this: Repo, viewer: string | undefined, opts?: { aiRead?: boolean; alias?: string }): { sql: string; params: SqlValue[] } {
-    if (!viewer) return { sql: '', params: [] };
+  documentVisibilityFilter(this: Repo, viewer: string | undefined, opts?: { aiRead?: boolean; alias?: string; teamOnly?: boolean }): { sql: string; params: SqlValue[] } {
     const d = opts?.alias ?? 'd';
+    if (opts?.teamOnly) {
+      return {
+        sql: ` AND (
+        EXISTS (SELECT 1 FROM graph_nodes gn WHERE gn.workspace_id = ${d}.workspace_id AND gn.document_id = ${d}.id AND gn.visibility = 'team')
+        OR (
+          NOT EXISTS (SELECT 1 FROM graph_nodes gn2 WHERE gn2.workspace_id = ${d}.workspace_id AND gn2.document_id = ${d}.id)
+          AND (${d}.ingested_by IS NULL OR ${d}.audience = 'team')
+          AND NOT EXISTS (SELECT 1 FROM pending_routes pr WHERE pr.workspace_id = ${d}.workspace_id AND pr.document_id = ${d}.id
+                            AND pr.status = 'pending' AND pr.audience IN ('private', 'only_me'))
+        )
+      )`,
+        params: [],
+      };
+    }
+    if (!viewer) return { sql: '', params: [] };
     const nodeOk = opts?.aiRead
       ? "(gn.visibility = 'team' OR (gn.owner_user_id = ? AND gn.visibility <> 'only_me'))"
       : "(gn.visibility = 'team' OR gn.owner_user_id = ?)";
@@ -449,9 +469,9 @@ export class GraphRepo {
     };
   }
 
-  /** True when `viewer` may read document `document_id` (see documentVisibilityFilter). */
-  async documentVisibleToViewer(this: Repo, workspace_id: string, document_id: string, viewer: string | undefined, aiRead = false): Promise<boolean> {
-    const f = this.documentVisibilityFilter(viewer, { aiRead });
+  /** True when `viewer` may read document `document_id` (see documentVisibilityFilter; `teamOnly` → every member may). */
+  async documentVisibleToViewer(this: Repo, workspace_id: string, document_id: string, viewer: string | undefined, aiRead = false, opts?: { teamOnly?: boolean }): Promise<boolean> {
+    const f = this.documentVisibilityFilter(viewer, { aiRead, teamOnly: opts?.teamOnly });
     const r = await this.sql.one<any>(`SELECT 1 AS ok FROM documents d WHERE d.workspace_id = ? AND d.id = ?${f.sql}`, [workspace_id, document_id, ...f.params]);
     return !!r;
   }

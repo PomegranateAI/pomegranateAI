@@ -306,13 +306,14 @@ export class IngestRepo {
 
   async listDocuments(this: Repo,
     workspace_id: string,
-    opts?: { viewer?: string; aiRead?: boolean },
+    opts?: { viewer?: string; aiRead?: boolean; teamOnly?: boolean },
   ): Promise<Array<{ id: string; source_ref: string; source_kind: string; source_type: string | null; version: number; summary: string | null; stakeholders: string[]; created_at: string; last_ingested_at: string | null }>> {
     // Ordered by last-ingest recency (falling back to first-seen for pre-column
     // rows), so a re-added source floats to the top of the Sources list the way
     // it does in the Curate inbox. `viewer` applies the document audience
-    // filter (documentVisibilityFilter); omit it only for system reads.
-    const vis = this.documentVisibilityFilter(opts?.viewer, { aiRead: opts?.aiRead });
+    // filter (documentVisibilityFilter); `teamOnly` restricts to what every
+    // member may see. Omit both only for system reads.
+    const vis = this.documentVisibilityFilter(opts?.viewer, { aiRead: opts?.aiRead, teamOnly: opts?.teamOnly });
     const rows = (await this.sql.query<any>(`SELECT d.id, d.source_ref, d.source_kind, d.source_type, d.version, d.summary, d.stakeholders, d.created_at, d.last_ingested_at
          FROM documents d WHERE d.workspace_id = ?${vis.sql} ORDER BY COALESCE(d.last_ingested_at, d.created_at) DESC`, [workspace_id, ...vis.params])) as Array<{ id: string; source_ref: string; source_kind: string; source_type: string | null; version: number; summary: string | null; stakeholders: string | null; created_at: string; last_ingested_at: string | null }>;
     await openRows(rows, async (r) => { r.summary = await openText(this, workspace_id, 'documents.summary', r.id, r.summary); });

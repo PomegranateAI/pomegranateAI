@@ -87,6 +87,31 @@ describe('buildWikiDigest', () => {
     const other = await buildWikiDigest(repo, ws, 'sg2', productProfile);
     expect(other.documents.map((d) => d.id)).toEqual(['d-other']);
   });
+
+  it("excludes a member's private documents and nodes (the plan only builds team pages)", async () => {
+    // Team doc: a team note. Private doc: only member A's private note.
+    // Private-staged doc with no notes yet. Legacy doc: no recorded ingester.
+    await addDoc('d-team', 'team.md', 'prd_or_spec', 'Team summary.');
+    await addDoc('d-priv', 'a-secret.md', 'prd_or_spec', 'PRIVATE summary of A.');
+    await addDoc('d-staged', 'a-staged.md', 'prd_or_spec', 'STAGED summary of A.');
+    await addDoc('d-legacy', 'legacy.md', 'prd_or_spec', 'Legacy summary.');
+    await repo.stampDocumentIngest(ws, 'd-team', 'uA', 'team');
+    await repo.stampDocumentIngest(ws, 'd-priv', 'uA', 'private');
+    await repo.stampDocumentIngest(ws, 'd-staged', 'uA', 'private');
+    await addNode('n-team', 'goal', 'Team goal');
+    await addNode('n-priv', 'goal', 'A secret goal');
+    repo.db.prepare(`UPDATE graph_nodes SET document_id = 'd-team' WHERE id = 'n-team'`).run();
+    repo.db.prepare(`UPDATE graph_nodes SET document_id = 'd-priv', visibility = 'private', owner_user_id = 'uA' WHERE id = 'n-priv'`).run();
+
+    const digest = await buildWikiDigest(repo, ws, 'default', productProfile);
+    expect(digest.documents.map((d) => d.id).sort()).toEqual(['d-legacy', 'd-team']);
+    const text = JSON.stringify(digest);
+    expect(text).not.toContain('PRIVATE summary of A.');
+    expect(text).not.toContain('STAGED summary of A.');
+    expect(text).not.toContain('a-secret.md');
+    expect(text).not.toContain('A secret goal');
+    expect(digest.census.total_nodes).toBe(1);
+  });
 });
 
 describe('fallbackPlan', () => {
