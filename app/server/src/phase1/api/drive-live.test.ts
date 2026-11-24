@@ -14,6 +14,7 @@ import * as os from 'node:os';
 import { openDb } from '../db/schema.js';
 import { Repo } from '../db/repo.js';
 import { __setComposioClientForTests } from '../../lib/composio.js';
+import { ResponseTooLargeError, type SafeFetchResult } from '../../lib/safe-fetch.js';
 import {
   __setDriveLiveTestHooks,
   driveLiveConfigured,
@@ -310,6 +311,13 @@ describe('drive content extraction (real Composio response shape)', () => {
     vi.unstubAllGlobals();
   });
 
+  const okDownload = (text: string): SafeFetchResult => ({
+    status: 200,
+    contentType: 'text/plain',
+    body: Buffer.from(text, 'utf8'),
+    url: 'https://r2.example/presigned',
+  });
+
   it('fetches and returns the body from downloaded_file_content.s3url', async () => {
     const execute = vi.fn().mockResolvedValue({
       successful: true,
@@ -323,13 +331,44 @@ describe('drive content extraction (real Composio response shape)', () => {
       },
     });
     __setComposioClientForTests({ tools: { execute } } as any);
-    const fetchMock = vi.fn().mockResolvedValue(new Response('the actual document body', { status: 200 }));
-    vi.stubGlobal('fetch', fetchMock);
+    const fetchMock = vi.fn().mockResolvedValue(okDownload('the actual document body'));
+    __setDriveLiveTestHooks({ downloadFetcher: fetchMock });
 
     const text = await fetchDriveFileContent('f1', 'application/vnd.google-apps.document', 'user_1', 'ca_1');
 
     expect(text).toBe('the actual document body');
-    expect(fetchMock).toHaveBeenCalledWith('https://r2.example/presigned');
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [url, opts] = fetchMock.mock.calls[0]!;
+    expect(url).toBe('https://r2.example/presigned');
+    // The download goes through safeFetch with a size cap and a timeout.
+    expect(opts.maxBytes).toBe(25 * 1024 * 1024);
+    expect(opts.timeoutMs).toBeGreaterThan(0);
+  });
+
+  it('uses the real safeFetch by default, which refuses a presigned URL pointing at a private address', async () => {
+    const execute = vi.fn().mockResolvedValue({
+      successful: true,
+      error: null,
+      data: { downloaded_file_content: { mimetype: 'text/plain', name: 'x', s3url: 'http://169.254.169.254/latest/meta-data/' } },
+    });
+    __setComposioClientForTests({ tools: { execute } } as any);
+    const fetchSpy = vi.fn();
+    vi.stubGlobal('fetch', fetchSpy);
+
+    await expect(fetchDriveFileContent('f1', 'text/plain', 'user_1', 'ca_1')).rejects.toThrow(DriveContentUnavailable);
+    expect(fetchSpy).not.toHaveBeenCalled(); // raw fetch is no longer used
+  });
+
+  it('maps an oversized download to DriveContentUnavailable', async () => {
+    const execute = vi.fn().mockResolvedValue({
+      successful: true,
+      error: null,
+      data: { downloaded_file_content: { mimetype: 'text/plain', name: 'x', s3url: 'https://r2.example/huge' } },
+    });
+    __setComposioClientForTests({ tools: { execute } } as any);
+    __setDriveLiveTestHooks({ downloadFetcher: vi.fn().mockRejectedValue(new ResponseTooLargeError(25 * 1024 * 1024)) });
+
+    await expect(fetchDriveFileContent('f1', 'text/plain', 'user_1', 'ca_1')).rejects.toThrow(DriveContentUnavailable);
   });
 
   it('rejects a binary mime type (video) without fetching the s3url', async () => {
@@ -345,7 +384,7 @@ describe('drive content extraction (real Composio response shape)', () => {
     });
     __setComposioClientForTests({ tools: { execute } } as any);
     const fetchMock = vi.fn();
-    vi.stubGlobal('fetch', fetchMock);
+    __setDriveLiveTestHooks({ downloadFetcher: fetchMock });
 
     await expect(fetchDriveFileContent('f1', 'video/mp4', 'user_1', 'ca_1')).rejects.toThrow(DriveUnsupportedContentType);
     expect(fetchMock).not.toHaveBeenCalled();
@@ -360,7 +399,7 @@ describe('drive content extraction (real Composio response shape)', () => {
       });
       __setComposioClientForTests({ tools: { execute } } as any);
       const fetchMock = vi.fn();
-      vi.stubGlobal('fetch', fetchMock);
+      __setDriveLiveTestHooks({ downloadFetcher: fetchMock });
 
       await expect(fetchDriveFileContent('f1', mimetype, 'user_1', 'ca_1')).rejects.toThrow(DriveUnsupportedContentType);
       expect(fetchMock).not.toHaveBeenCalled();
@@ -374,7 +413,7 @@ describe('drive content extraction (real Composio response shape)', () => {
       data: { downloaded_file_content: { mimetype: 'text/plain', name: 'x', s3url: 'https://r2.example/expired' } },
     });
     __setComposioClientForTests({ tools: { execute } } as any);
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('expired', { status: 403 })));
+    __setDriveLiveTestHooks({ downloadFetcher: vi.fn().mockResolvedValue({ ...okDownload('expired'), status: 403 }) });
 
     await expect(fetchDriveFileContent('f1', 'text/plain', 'user_1', 'ca_1')).rejects.toThrow(DriveContentUnavailable);
   });

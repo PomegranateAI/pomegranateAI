@@ -121,6 +121,7 @@
 import { z } from 'zod';
 import { structuredCall, hasStructuredLLM, MODELS } from '../../lib/anthropic.js';
 import { getComposioClient } from '../../lib/composio.js';
+import { safeFetch, UnsafeUrlError, ResponseTooLargeError, type SafeFetchResult } from '../../lib/safe-fetch.js';
 import type { Repo } from '../db/repo.js';
 
 export type DrivePullPlan = {
@@ -210,6 +211,9 @@ const MAX_RESULTS = 10;
 /** Page size requested from Composio itself (kept a bit above MAX_RESULTS in case some results turn out to have no id and get filtered). */
 const SEARCH_PAGE_SIZE = 25;
 const BODY_CHAR_CAP = 4000;
+/** Cap on the presigned-URL download, matching the 25 MiB upload limit. */
+const DRIVE_DOWNLOAD_MAX_BYTES = 25 * 1024 * 1024;
+const DRIVE_DOWNLOAD_TIMEOUT_MS = 30_000;
 const PREVIEW_TTL_MS = 10 * 60_000;
 const TOOLKIT = 'googledrive';
 
@@ -228,6 +232,8 @@ type DriveTestHooks = {
   statusChecker?: (connectedAccountId: string) => Promise<'initiated' | 'active' | 'failed'>;
   disconnector?: (connectedAccountId: string) => Promise<void>;
   authConfigCreator?: () => Promise<string>;
+  /** Replaces safeFetch for the presigned download URL (same signature). */
+  downloadFetcher?: typeof safeFetch;
 };
 let testHooks: DriveTestHooks | null = null;
 export function __setDriveLiveTestHooks(hooks: DriveTestHooks | null): void {
@@ -496,11 +502,26 @@ async function extractDownloadedText(fileId: string, data: unknown): Promise<str
     if (downloaded && typeof downloaded.s3url === 'string') {
       const mimeType = typeof downloaded.mimetype === 'string' ? downloaded.mimetype : undefined;
       if (isBinaryMimeType(mimeType)) throw new DriveUnsupportedContentType(fileId, mimeType!);
-      const resp = await fetch(downloaded.s3url);
-      if (!resp.ok) {
+      // The URL comes from a third-party API response, so it goes through
+      // safeFetch (SSRF guard, size cap, timeout) rather than raw fetch.
+      const download = testHooks?.downloadFetcher ?? safeFetch;
+      let resp: SafeFetchResult;
+      try {
+        resp = await download(downloaded.s3url, {
+          maxBytes: DRIVE_DOWNLOAD_MAX_BYTES,
+          timeoutMs: DRIVE_DOWNLOAD_TIMEOUT_MS,
+          maxRedirects: 3,
+        });
+      } catch (err) {
+        if (err instanceof UnsafeUrlError || err instanceof ResponseTooLargeError) {
+          throw new DriveContentUnavailable(fileId, `download url refused: ${err.message}`);
+        }
+        throw err;
+      }
+      if (resp.status < 200 || resp.status >= 300) {
         throw new DriveContentUnavailable(fileId, `download url returned ${resp.status}`);
       }
-      return resp.text();
+      return resp.body.toString('utf8');
     }
     for (const key of ['file', 'content', 'fileContent', 'data']) {
       const v = d[key];
