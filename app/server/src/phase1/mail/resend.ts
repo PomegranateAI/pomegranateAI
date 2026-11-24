@@ -10,7 +10,7 @@
  * domain you have verified with Resend.
  */
 import { log } from '../../lib/log.js';
-import { magicLinkContent } from './smtp.js';
+import { magicLinkContent, assertHeaderSafe, sanitizeSubject } from './smtp.js';
 
 export interface ResendConfig {
   apiKey: string;
@@ -62,6 +62,10 @@ export async function sendMailViaResend(opts: {
   /** Test seam — defaults to global fetch. */
   fetchImpl?: typeof fetch;
 }): Promise<void> {
+  // Resend builds the headers, but refuse line breaks in addresses and flatten
+  // them in the subject the same way the SMTP path does — defence in depth.
+  assertHeaderSafe('from', opts.config.from);
+  assertHeaderSafe('to', opts.to);
   const doFetch = opts.fetchImpl ?? fetch;
   const res = await doFetch('https://api.resend.com/emails', {
     method: 'POST',
@@ -72,7 +76,7 @@ export async function sendMailViaResend(opts: {
     body: JSON.stringify({
       from: opts.config.from,
       to: opts.to,
-      subject: opts.subject,
+      subject: sanitizeSubject(opts.subject),
       text: opts.text,
       ...(opts.html ? { html: opts.html } : {}),
     }),

@@ -143,7 +143,12 @@ export function createAutomationScheduler(deps: AutomationSchedulerDeps): Automa
         `/workspaces/${a.workspace_id}/apps/${a.connector}/pull`,
         pullBody,
       );
-      if (pull.status !== 200) throw new Error(pull.json?.error ?? `pull failed (${pull.status})`);
+      if (pull.status !== 200) {
+        // A fail-closed redaction refusal carries a human sentence; keep it on
+        // the run record so the owner sees why nothing was ingested.
+        const code = pull.json?.error ?? `pull failed (${pull.status})`;
+        throw new Error(code === 'redaction_unavailable' && pull.json?.detail ? `${code}: ${pull.json.detail}` : code);
+      }
 
       const results = (pull.json.results ?? []) as Array<{ document_id: string; candidates: number }>;
       const document_ids = results.map((r) => r.document_id);

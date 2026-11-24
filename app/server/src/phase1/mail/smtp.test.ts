@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import net from 'node:net';
-import { smtpConfigFromEnv, sendMagicLinkEmail } from './smtp.js';
+import { smtpConfigFromEnv, sendMagicLinkEmail, sendMail, buildMessage, encodeSubject } from './smtp.js';
 
 describe('smtpConfigFromEnv', () => {
   it('returns null when SMTP_URL is unset (dev fallback)', () => {
@@ -149,5 +149,59 @@ describe('sendMagicLinkEmail (in-process SMTP round-trip)', () => {
     } finally {
       server.close();
     }
+  });
+});
+
+describe('header injection guards', () => {
+  const headerNames = (msg: string) =>
+    msg
+      .slice(0, msg.indexOf('\r\n\r\n'))
+      .split('\r\n')
+      .filter((l) => !/^\s/.test(l))
+      .map((l) => l.slice(0, l.indexOf(':')));
+
+  it('a CRLF in the subject is flattened to a space; no header is injected', () => {
+    const msg = buildMessage({
+      from: 'no-reply@pomegranate.test',
+      to: 'ic@example.com',
+      subject: 'Access to "Acme\r\nBcc: victim@evil.test\r\n\r\nhi"',
+      body: 'body',
+    });
+    expect(headerNames(msg)).toEqual(['From', 'To', 'Subject', 'Date', 'MIME-Version', 'Content-Type']);
+    expect(msg).not.toMatch(/^Bcc:/m);
+    expect(msg).toContain('Subject: Access to "Acme Bcc: victim@evil.test hi"');
+  });
+
+  it('a CRLF recipient or sender throws in buildMessage and sendMail', async () => {
+    expect(() =>
+      buildMessage({ from: 'a@x.test', to: 'ic@example.com\r\nBcc: v@evil.test', subject: 's', body: 'b' }),
+    ).toThrow(/line break/);
+    expect(() => buildMessage({ from: 'a@x.test\n', to: 'ic@example.com', subject: 's', body: 'b' })).toThrow(
+      /line break/,
+    );
+    await expect(
+      sendMail({
+        // Nothing listens here: the guard must fire before any connection.
+        config: { host: '127.0.0.1', port: 1, secure: false, from: 'no-reply@pomegranate.test' },
+        to: 'ic@example.com>\r\nRCPT TO:<v@evil.test',
+        subject: 's',
+        text: 't',
+      }),
+    ).rejects.toThrow(/line break/);
+  });
+
+  it('RFC 2047-encodes a non-ASCII subject, leaves ASCII and pre-encoded subjects alone', () => {
+    expect(encodeSubject('Plain subject')).toBe('Plain subject');
+    expect(encodeSubject('=?UTF-8?B?w6l0w6k=?= already')).toBe('=?UTF-8?B?w6l0w6k=?= already');
+    const enc = encodeSubject('Accès à « Équipe » ✓');
+    expect(enc).toMatch(/^=\?UTF-8\?B\?[A-Za-z0-9+/=]+\?=$/);
+    expect(Buffer.from(enc.slice(10, -2), 'base64').toString('utf8')).toBe('Accès à « Équipe » ✓');
+    // Long subjects fold into several encoded-words, each within 75 chars.
+    const words = encodeSubject('é'.repeat(100)).split('\r\n ');
+    expect(words.length).toBeGreaterThan(1);
+    for (const w of words) expect(w.length).toBeLessThanOrEqual(75);
+    expect(words.map((w) => Buffer.from(w.slice(10, -2), 'base64').toString('utf8')).join('')).toBe('é'.repeat(100));
+    const msg = buildMessage({ from: 'a@x.test', to: 'b@x.test', subject: 'é'.repeat(100), body: 'b' });
+    expect(headerNames(msg)).toEqual(['From', 'To', 'Subject', 'Date', 'MIME-Version', 'Content-Type']);
   });
 });

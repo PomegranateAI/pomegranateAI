@@ -4,6 +4,7 @@ import { bodyLimit } from 'hono/body-limit';
 import { z } from 'zod';
 import { ReaderConfig, MAX_MEDIA_BYTES } from './media-types.js';
 import { MediaService, MediaError } from './media-service.js';
+import { RedactionUnavailableError } from '../ingest/redaction-error.js';
 
 export function registerMediaRoutes(
   app: Hono<{ Variables: AppVars }>,
@@ -101,6 +102,7 @@ export function registerMediaRoutes(
     try {
       return c.json(await media.runIngest(c.get('workspace_id'), c.req.param('id'), c.get('user_id')));
     } catch (error) {
+      if (error instanceof RedactionUnavailableError) return c.json(error.body(), 422);
       return c.json(
         { error: error instanceof MediaError ? error.code : 'media_processing_failed' },
         error instanceof MediaError ? error.status : 503,

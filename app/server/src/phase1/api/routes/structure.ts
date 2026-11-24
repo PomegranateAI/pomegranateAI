@@ -3,6 +3,7 @@
 // shared helpers come from createRouteCore() in ./core.ts.
 
 import { z } from 'zod';
+import { displayName } from '../../lib/display-name.js';
 import { ContextProfile } from '../../../lib/schemas.js';
 import type { ContextProfile as ContextProfileT } from '../../../lib/schemas.js';
 import { FALLBACK_PROFILE } from '../../../lib/profiles/index.js';
@@ -145,7 +146,7 @@ app.post('/workspaces/:ws/subgraphs', authn, workspaceGate, async (c) => {
   const parsed = z
     .object({
       profile_id: z.string().min(1),
-      name: z.string().min(1).optional(),
+      name: displayName().optional(),
       slug: z.string().min(1).optional(),
       description: z.string().max(500).optional(),
     })
@@ -195,7 +196,7 @@ app.patch('/workspaces/:ws/subgraphs/:id', authn, workspaceGate, async (c) => {
   const body = await c.req.json().catch(() => ({}));
   const parsed = z
     .object({
-      name: z.string().min(1).optional(),
+      name: displayName().optional(),
       description: z.string().max(500).optional(),
       // The content-summary override. Non-empty only — blanking it out isn't
       // supported here (that would leave the router's `currently_holds` input

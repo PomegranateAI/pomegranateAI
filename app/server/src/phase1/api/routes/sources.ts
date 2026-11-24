@@ -5,6 +5,7 @@
 import { z } from 'zod';
 import * as path from 'node:path';
 import { log } from '../../../lib/log.js';
+import { RedactionUnavailableError } from '../../ingest/redaction-error.js';
 import { APP_CATALOG } from '../app-sources.js';
 import {
   gmailLiveConfigured,
@@ -614,6 +615,7 @@ app.post('/workspaces/:ws/apps/:app/pull', authn, workspaceGate, async (c) => {
         message: r.message,
       });
     } catch (err) {
+      if (err instanceof RedactionUnavailableError) return c.json(err.body(), 422);
       log.info('apps.pull_live_failed', { workspace: ws, app: appEntry.id, error: String(err) });
       return c.json({ error: 'gmail_unavailable', detail: err instanceof Error ? err.message : String(err) }, 502);
     }
@@ -670,6 +672,7 @@ app.post('/workspaces/:ws/apps/:app/pull', authn, workspaceGate, async (c) => {
         message: r.message,
       });
     } catch (err) {
+      if (err instanceof RedactionUnavailableError) return c.json(err.body(), 422);
       const repoMissing = err instanceof GithubRepoRequired;
       log.info('apps.pull_live_failed', { workspace: ws, app: appEntry.id, error: String(err) });
       return c.json(
@@ -743,6 +746,7 @@ app.post('/workspaces/:ws/apps/:app/pull', authn, workspaceGate, async (c) => {
         total_candidates: results.reduce((sum, r) => sum + r.candidates, 0),
       });
     } catch (err) {
+      if (err instanceof RedactionUnavailableError) return c.json(err.body(), 422);
       const repoMissing = err instanceof GithubRepoRequired;
       const unsupportedType = err instanceof GithubUnsupportedContentType;
       log.info('apps.pull_live_failed', { workspace: ws, app: appEntry.id, error: String(err) });
@@ -816,6 +820,7 @@ app.post('/workspaces/:ws/apps/:app/pull', authn, workspaceGate, async (c) => {
         message: r.message,
       });
     } catch (err) {
+      if (err instanceof RedactionUnavailableError) return c.json(err.body(), 422);
       const channelMissing = err instanceof SlackChannelRequired;
       log.info('apps.pull_live_failed', { workspace: ws, app: appEntry.id, error: String(err) });
       return c.json(
@@ -852,6 +857,7 @@ app.post('/workspaces/:ws/apps/:app/pull', authn, workspaceGate, async (c) => {
       }
       return c.json({ app: appEntry.id, query: parsed.data.query, live: true, audience: plan.audience, results, total_candidates: results.reduce((s, r) => s + r.candidates, 0) });
     } catch (err) {
+      if (err instanceof RedactionUnavailableError) return c.json(err.body(), 422);
       const queryMissing = err instanceof DriveQueryRequired;
       const unsupportedType = err instanceof DriveUnsupportedContentType;
       log.info('apps.pull_live_failed', { workspace: ws, app: appEntry.id, error: String(err) });
@@ -893,6 +899,7 @@ app.post('/workspaces/:ws/apps/:app/pull', authn, workspaceGate, async (c) => {
       }
       return c.json({ app: appEntry.id, query: parsed.data.query, live: true, audience: plan.audience, results, total_candidates: results.reduce((s, r) => s + r.candidates, 0) });
     } catch (err) {
+      if (err instanceof RedactionUnavailableError) return c.json(err.body(), 422);
       const queryMissing = err instanceof NotionQueryRequired;
       log.info('apps.pull_live_failed', { workspace: ws, app: appEntry.id, error: String(err) });
       return c.json(
@@ -930,6 +937,7 @@ app.post('/workspaces/:ws/apps/:app/pull', authn, workspaceGate, async (c) => {
       }
       return c.json({ app: appEntry.id, query: parsed.data.query, live: true, audience: plan.audience, results, total_candidates: results.reduce((s, r) => s + r.candidates, 0) });
     } catch (err) {
+      if (err instanceof RedactionUnavailableError) return c.json(err.body(), 422);
       const searchMissing = err instanceof FathomSearchRequired;
       log.info('apps.pull_live_failed', { workspace: ws, app: appEntry.id, error: String(err) });
       return c.json(
@@ -964,6 +972,7 @@ app.post('/workspaces/:ws/apps/:app/pull', authn, workspaceGate, async (c) => {
       });
       return c.json({ app: appEntry.id, query: parsed.data.query, live: true, audience: plan.audience, results: r.document_id ? [{ id: 'teams_run', title, document_id: r.document_id, candidates: r.candidates }] : [], total_candidates: r.candidates, message: r.message });
     } catch (err) {
+      if (err instanceof RedactionUnavailableError) return c.json(err.body(), 422);
       const targetMissing = err instanceof TeamsTargetRequired;
       log.info('apps.pull_live_failed', { workspace: ws, app: appEntry.id, error: String(err) });
       return c.json(
@@ -1028,6 +1037,7 @@ app.post('/workspaces/:ws/apps/:app/pull', authn, workspaceGate, async (c) => {
       }
       return c.json({ app: appEntry.id, query: parsed.data.query, live: true, audience: plan.audience, results, total_candidates: results.reduce((s, r) => s + r.candidates, 0) });
     } catch (err) {
+      if (err instanceof RedactionUnavailableError) return c.json(err.body(), 422);
       const badRequest =
         err instanceof JiraProjectRequired || err instanceof JiraBoardRequired || err instanceof JiraTicketScopeRequired;
       log.info('apps.pull_live_failed', { workspace: ws, app: appEntry.id, error: String(err) });

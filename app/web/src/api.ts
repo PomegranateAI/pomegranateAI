@@ -433,10 +433,16 @@ async function call<T>(path: string, opts: { method?: string; body?: unknown; no
   return (await r.json()) as T;
 }
 
-/** Plain-language errors for directory governance refusals (server: governance.ts). */
+/** Plain-language errors for directory governance refusals (server: governance.ts)
+ *  and for ingests refused because a source-redaction rule could not run
+ *  (server: redaction-error.ts — the server's own sentence is shown). */
 function governanceMessage(body: string): string | null {
   try {
-    const j = JSON.parse(body) as { error?: string };
+    const j = JSON.parse(body) as { error?: string; detail?: unknown };
+    if (j.error === 'redaction_unavailable')
+      return typeof j.detail === 'string' && j.detail
+        ? j.detail
+        : 'A redaction rule in this directory could not run, so nothing was ingested.';
     if (j.error === 'read_only') return 'You have view-only access to this directory: you can view and ask, not add or change.';
     if (j.error === 'mfa_required_for_sensitive_directory')
       return 'This directory is marked sensitive. Turn on two-step verification in Setup → General to open it.';

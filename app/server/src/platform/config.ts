@@ -63,6 +63,7 @@ export const ENV_SCHEMA: readonly EnvVar[] = [
   { name: 'ANTHROPIC_API_KEY', group: 'llm', secret: true, required: 'when', note: 'provider=anthropic, wiki (preferAnthropic), surface agent' },
   { name: 'POMEGRANATE_CAPTURE_GLEAN', group: 'llm', secret: false, required: 'no' },
   { name: 'POMEGRANATE_CHUNK_CHARS', group: 'llm', secret: false, required: 'no' },
+  { name: 'POMEGRANATE_REDACT_FAIL_OPEN', group: 'llm', secret: false, required: 'no', default: '0', note: '1 stores the original text when a source-redaction rule applies but redaction cannot run (no redactor, too long, or an error); default refuses the ingest' },
   { name: 'POMEGRANATE_LLM_LOG_PATH', group: 'llm', secret: false, required: 'no', default: './data/llm.log' },
   { name: 'POMEGRANATE_LLM_LOG_VERBATIM', group: 'llm', secret: false, required: 'no', note: 'keep unset in production: the LLM log would then contain user text' },
   { name: 'CURATOR_MODEL', group: 'llm', secret: false, required: 'no' },
