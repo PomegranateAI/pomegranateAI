@@ -9,6 +9,7 @@
  * Privacy: nodes are filtered through `repo.nodeVisibleToViewer(..., aiRead)`,
  * so an `only_me` (or another owner's `private`) node never enters a window —
  * an update can only ever surface what the subscriber could read directly.
+ * Documents get the same treatment via `repo.documentVisibilityFilter`.
  */
 import type { Repo } from '../db/repo.js';
 
@@ -75,7 +76,12 @@ export async function changesSince(
   // 3. Documents — (re-)ingested after the watermark, routed to this subgraph.
   //    A 'default' subgraph also picks up documents with no routing rows at all
   //    (single-subgraph workspaces route everything to default implicitly).
-  const docRows = await repo.listDocumentsIngestedSince(workspace_id, since, subgraph_id) as DocRow[];
+  //    Viewer-filtered like nodes: another member's private (or anyone's
+  //    only_me, under aiRead) document and its summary never enter a window.
+  const docRows = await repo.listDocumentsIngestedSince(workspace_id, since, subgraph_id, {
+    viewer: opts.viewer_user_id,
+    aiRead,
+  }) as DocRow[];
   const documents: ChangedDocument[] = docRows.map((r) => ({
     id: r.id,
     summary: r.summary,

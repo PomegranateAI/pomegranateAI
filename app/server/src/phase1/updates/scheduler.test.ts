@@ -122,6 +122,111 @@ describe('changesSince', () => {
   });
 });
 
+/**
+ * Insert a document ingested at `ingestedAt` (no routing rows → the default
+ * subgraph picks it up). With `note`, also inserts the note it produced, so
+ * its audience comes from that note; without, from ingested_by/audience.
+ */
+function insertDoc(
+  id: string,
+  ingestedAt: string,
+  opts: {
+    ingested_by: string;
+    audience?: 'team' | 'private' | 'only_me' | null;
+    note?: { visibility: 'team' | 'private' | 'only_me'; owner: string };
+  },
+): void {
+  db.prepare(
+    `INSERT INTO documents
+       (id, workspace_id, source_ref, source_kind, sha256, version, summary, created_at, last_ingested_at, ingested_by, audience)
+     VALUES (?, ?, ?, 'doc', ?, 1, ?, ?, ?, ?, ?)`,
+  ).run(id, wsId, `ref-${id}`, `sha-${id}`, `Summary of ${id}`, ingestedAt, ingestedAt, opts.ingested_by, opts.audience ?? null);
+  if (opts.note) {
+    // Note updated before the watermark so only the document is "new".
+    db.prepare(
+      `INSERT INTO graph_nodes
+         (id, workspace_id, type, status, data, created_at, updated_at, subgraph_id, visibility, owner_user_id, document_id)
+       VALUES (?, ?, 'decision', 'active', '{}', ?, ?, 'default', ?, ?, ?)`,
+    ).run(`note_${id}`, wsId, '2026-06-01T00:00:00.000Z', '2026-06-01T00:00:00.000Z', opts.note.visibility, opts.note.owner, id);
+  }
+}
+
+describe('changesSince — document visibility', () => {
+  let aId: string;
+  let bId: string;
+  const AT = '2026-07-05T00:00:00.000Z';
+
+  beforeEach(async () => {
+    aId = (await repo.findOrCreateUser('a@test')).id;
+    bId = (await repo.findOrCreateUser('b@test')).id;
+    await repo.addMember({ workspace_id: wsId, user_id: aId, role: 'member' });
+    await repo.addMember({ workspace_id: wsId, user_id: bId, role: 'member' });
+    insertDoc('d_team', AT, { ingested_by: aId, audience: 'team', note: { visibility: 'team', owner: aId } });
+    insertDoc('d_private', AT, { ingested_by: aId, audience: 'private', note: { visibility: 'private', owner: aId } });
+    insertDoc('d_private_nonotes', AT, { ingested_by: aId, audience: 'private' });
+    insertDoc('d_onlyme', AT, { ingested_by: aId, audience: 'only_me', note: { visibility: 'only_me', owner: aId } });
+  });
+
+  const docIds = async (viewer: string, aiRead?: boolean) =>
+    (await changesSince(repo, { workspace_id: wsId, subgraph_id: 'default' }, WATERMARK, {
+      viewer_user_id: viewer,
+      aiRead,
+    })).documents.map((d) => d.id).sort();
+
+  it("excludes another member's private document (and its summary) from B's window", async () => {
+    const win = await changesSince(repo, { workspace_id: wsId, subgraph_id: 'default' }, WATERMARK, {
+      viewer_user_id: bId,
+      aiRead: true,
+    });
+    expect(win.documents.map((d) => d.id)).toEqual(['d_team']);
+    expect(JSON.stringify(win)).not.toContain('Summary of d_private');
+    expect(JSON.stringify(win)).not.toContain('Summary of d_onlyme');
+    // Same result for a human (non-AI) read.
+    expect(await docIds(bId, false)).toEqual(['d_team']);
+  });
+
+  it('A still sees their own private documents; only_me is excluded under aiRead', async () => {
+    expect(await docIds(aId, true)).toEqual(['d_private', 'd_private_nonotes', 'd_team']);
+    expect(await docIds(aId, false)).toEqual(['d_onlyme', 'd_private', 'd_private_nonotes', 'd_team']);
+  });
+
+  it('with no viewer (single-user local mode) the document list is unfiltered', async () => {
+    const rows = (await repo.listDocumentsIngestedSince(wsId, WATERMARK, 'default')) as Array<{ id: string }>;
+    expect(rows.map((r) => r.id).sort()).toEqual(['d_onlyme', 'd_private', 'd_private_nonotes', 'd_team']);
+  });
+
+  it("B's digest never carries A's private document summary", async () => {
+    const captured: UpdateDigestInput[] = [];
+    const sub = await repo.createUpdateSubscription({
+      owner_user_id: bId,
+      topic: 'roadmap',
+      topic_embedding: null,
+      targets: [{ workspace_id: wsId, subgraph_id: 'default' }],
+      cadence_ms: CADENCE,
+      medium: 'email',
+      kind: 'get',
+      destination: null,
+      approval_mode: 'autonomous',
+      next_run_at: '2026-07-08T00:00:00.000Z',
+    });
+    await repo.updateUpdateSubscription(sub.id, { watermark: WATERMARK });
+    const transport = new FakeTransport();
+    const sched = createUpdateScheduler({
+      repo,
+      transports: { email: transport },
+      synthesize: async (input) => {
+        captured.push(input);
+        return fakeSynth(input);
+      },
+      now: () => CLOCK,
+    });
+    await sched.runSubscription((await repo.getUpdateSubscription(sub.id))!);
+    expect(captured).toHaveLength(1);
+    expect(captured[0]!.documents.map((d) => d.id)).toEqual(['d_team']);
+    expect(JSON.stringify(captured[0])).not.toMatch(/Summary of d_(private|onlyme)/);
+  });
+});
+
 describe('update scheduler', () => {
   it('runs a due subscription, delivers, and advances the watermark on success', async () => {
     insertNode('n1', '2026-07-05T00:00:00.000Z');
