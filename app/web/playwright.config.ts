@@ -4,10 +4,10 @@ import { fileURLToPath } from 'node:url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-// E2E config — boots a fresh API server on :3000 (Anthropic provider, isolated
+// E2E config — boots a fresh API server on :3000 (Together by default, isolated
 // SQLite + files dir) and the Vite dev server on :5173 (which proxies /api to
 // :3000). Each spec gets a clean DB because PLAYWRIGHT_DATA_DIR is unique per
-// run. ANTHROPIC_API_KEY is inherited from the calling shell (Playwright
+// run. Provider credentials are inherited from the calling shell (Playwright
 // merges webServer.env onto process.env).
 const DATA_DIR = path.join(
   '/tmp',
@@ -39,7 +39,11 @@ export default defineConfig({
         PORT: '3000',
         SIGNUP_MODE: 'open',
         POMEGRANATE_DEV_INLINE_CODES: '1',
-        POMEGRANATE_LLM_PROVIDER: 'anthropic',
+        // Together AI by default (the server's own default seam). Its
+        // POMEGRANATE_HOSTED_API_KEY / _BASE_URL / _MODEL are inherited from
+        // the calling shell; set POMEGRANATE_LLM_PROVIDER=anthropic (with
+        // ANTHROPIC_API_KEY) to run against Anthropic instead.
+        POMEGRANATE_LLM_PROVIDER: process.env.POMEGRANATE_LLM_PROVIDER ?? 'together',
         // Every spec signs in from the same IP (localhost), a few seconds
         // apart: the default auth limit (burst 20, one back per 3s) is sized
         // for real users and 429s a full run. The limiter has its own unit
