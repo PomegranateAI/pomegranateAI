@@ -20,14 +20,21 @@ let ws: string;
 let filesDir: string;
 const ts = '2026-01-01T00:00:00Z';
 
-async function addNode(id: string, type: string, title: string, docId: string | null, attrs?: Record<string, unknown>) {
+async function addNode(
+  id: string,
+  type: string,
+  title: string,
+  docId: string | null,
+  attrs?: Record<string, unknown>,
+  access: { visibility?: 'team' | 'private' | 'only_me'; owner?: string | null } = {},
+) {
   const data = await sealedNodeData(repo, ws, id, { id, type, title, body: `${title} body`, status: 'active', created_at: ts, updated_at: ts, attrs: { product: 'Pomegranate', ...attrs } });
   repo.db
     .prepare(
-      `INSERT INTO graph_nodes (id, workspace_id, subgraph_id, type, status, data, document_id, visibility, created_at, updated_at)
-       VALUES (?, ?, 'default', ?, 'active', ?, ?, 'team', ?, ?)`,
+      `INSERT INTO graph_nodes (id, workspace_id, subgraph_id, type, status, data, document_id, visibility, owner_user_id, created_at, updated_at)
+       VALUES (?, ?, 'default', ?, 'active', ?, ?, ?, ?, ?, ?)`,
     )
-    .run(id, ws, type, data, docId, ts, ts);
+    .run(id, ws, type, data, docId, access.visibility ?? 'team', access.owner ?? null, ts, ts);
 }
 function addDoc(id: string, ref: string) {
   repo.db.prepare(`INSERT INTO documents (id, workspace_id, source_ref, source_kind, sha256, version, source_type, created_at, last_ingested_at) VALUES (?, ?, ?, 'doc', ?, 1, 'prd_or_spec', ?, ?)`).run(id, ws, ref, id, ts, ts);
@@ -154,5 +161,92 @@ describe('fillPage — document reproduction path', () => {
     const r = await fillPage(repo, ws, 'default', page, { filesDir });
     expect(r.via).toBe('fallback');
     expect(r.blocks).toBeGreaterThan(0);
+  });
+  // ---------- page audience (a page's readers decide which sources may feed it) ----------
+
+  /** Capture the user text the reproduction stub receives. */
+  function captureLlm(): { user: () => string } {
+    let seen = '';
+    setStructuredLLM({
+      name: 'stub',
+      async callStructured(opts) {
+        seen = opts.user;
+        return { blocks: [{ section_key: 'S', type: 'paragraph', text: 'ok', cited_node_ids: [], changed: false }] };
+      },
+    });
+    return { user: () => seen };
+  }
+
+  /** A team doc (team node) + member A's private doc (private node), both routed here. */
+  async function seedTeamAndPrivate() {
+    addDoc('d_team', 'team.md');
+    addDoc('d_priv', 'a-private.md');
+    await repo.routeDocument(ws, 'd_team', 'default', { routed_by: 'pinned' });
+    await repo.routeDocument(ws, 'd_priv', 'default', { routed_by: 'pinned' });
+    await repo.stampDocumentIngest(ws, 'd_team', 'uA', 'team');
+    await repo.stampDocumentIngest(ws, 'd_priv', 'uA', 'private');
+    await addNode('n_team', 'goal', 'Team goal', 'd_team');
+    await addEvidence('n_team', 'd_team');
+    await addNode('n_priv', 'goal', 'A private goal', 'd_priv', undefined, { visibility: 'private', owner: 'uA' });
+    await addEvidence('n_priv', 'd_priv');
+    await writeDocText('d_team', 1, '# Team\n\nTEAM text everyone may read.');
+    await writeDocText('d_priv', 1, '# Private\n\nPRIVATE text only A may read.');
+  }
+
+  it('a team page reads team sources but never a member\'s private doc or node', async () => {
+    await seedTeamAndPrivate();
+    const { id } = await repo.insertWikiPage(ws, 'default', {
+      slug: 'roadmap', title: 'Roadmap', anchor: { scope_value: 'Pomegranate' },
+      source_doc_ids: ['d_team', 'd_priv'], sections: [{ heading: 'S' }],
+    });
+    const page = (await repo.getWikiPage(ws, id))!;
+    expect(page.visibility).toBe('team');
+    const llm = captureLlm();
+    const r = await fillPage(repo, ws, 'default', page, { filesDir });
+    expect(r.via).toBe('document');
+    expect(llm.user()).toContain('TEAM text everyone may read.');
+    expect(llm.user()).not.toContain('PRIVATE text only A may read.');
+    expect(llm.user()).not.toContain('A private goal');
+    expect(llm.user()).not.toContain('a-private.md');
+  });
+
+  it('a team page whose only source is private produces nothing from it', async () => {
+    await seedTeamAndPrivate();
+    const { id } = await repo.insertWikiPage(ws, 'default', {
+      slug: 'secret', title: 'Secret', anchor: { kind: 'nothing', scope_value: 'No such scope here' },
+      source_doc_ids: ['d_priv'], sections: [{ heading: 'S' }],
+    });
+    const page = (await repo.getWikiPage(ws, id))!;
+    const llm = captureLlm();
+    const r = await fillPage(repo, ws, 'default', page, { filesDir });
+    expect(r.via).toBe('empty');
+    expect(r.blocks).toBe(0);
+    expect(llm.user()).toBe('');
+  });
+
+  it("a private page owned by A may use A's private doc, but not another member's", async () => {
+    await seedTeamAndPrivate();
+    addDoc('d_privB', 'b-private.md');
+    await repo.routeDocument(ws, 'd_privB', 'default', { routed_by: 'pinned' });
+    await repo.stampDocumentIngest(ws, 'd_privB', 'uB', 'private');
+    await addNode('n_privB', 'goal', 'B private goal', 'd_privB', undefined, { visibility: 'private', owner: 'uB' });
+    await writeDocText('d_privB', 1, '# B\n\nPRIVATE text only B may read.');
+    // A's only_me material stays out of every AI read, even for A's own page.
+    await addNode('n_onlyme', 'goal', 'A only-me goal', 'd_team', undefined, { visibility: 'only_me', owner: 'uA' });
+
+    const { id } = await repo.insertWikiPage(ws, 'default', {
+      slug: 'mine', title: 'Mine', anchor: { scope_value: 'Pomegranate' },
+      source_doc_ids: ['d_team', 'd_priv', 'd_privB'], sections: [{ heading: 'S' }],
+      visibility: 'private', owner_user_id: 'uA',
+    });
+    const page = (await repo.getWikiPage(ws, id))!;
+    const llm = captureLlm();
+    await fillPage(repo, ws, 'default', page, { filesDir });
+    expect(llm.user()).toContain('TEAM text everyone may read.');
+    expect(llm.user()).toContain('PRIVATE text only A may read.');
+    expect(llm.user()).toContain('A private goal');
+    expect(llm.user()).not.toContain('PRIVATE text only B may read.');
+    expect(llm.user()).not.toContain('B private goal');
+    expect(llm.user()).not.toContain('A only-me goal');
   });
 });

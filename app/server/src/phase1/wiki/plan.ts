@@ -237,8 +237,12 @@ export async function buildWikiDigest(
     (await repo.listSubgraphDocuments(workspace_id, subgraph_id)).map((r) => r.document_id),
   );
   const subgraphNodeIds = new Set(nodes.map((n) => n.id));
+  //
+  // AUDIENCE SCOPE: the planner only ever produces team pages, so the digest
+  // carries only documents every workspace member may see (teamOnly) — a
+  // member's private document must not leak its name or summary into a plan.
   const documents = (await Promise.all((await repo
-    .listDocuments(workspace_id))
+    .listDocuments(workspace_id, { teamOnly: true }))
     .filter((d) => routedDocIds.has(d.id))
     .map(async (d) => ({
       id: d.id,
