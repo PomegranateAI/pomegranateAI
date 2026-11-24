@@ -61,7 +61,7 @@ app.post('/agent/surface/automations/upsert', async (c) => {
   if (!parsed.success) return c.json({ error: 'invalid' }, 400);
   const { team_id, slack_user_id, channel_id, cadence_ms } = parsed.data;
 
-  const user = await repo.findUserBySlackIdentity(team_id, slack_user_id);
+  const user = await repo.findUserBySlackIdentity(team_id, slack_user_id, { activeOnly: true });
   if (!user) return c.json({ error: 'unmapped', reply: UNMAPPED_REPLY }, 404);
   const wsId = await surfaceFolderFor(user.id, 'slack');
   if (!wsId) return c.json({ error: 'no_default_folder', reply: NO_DEFAULT_REPLY }, 409);
@@ -101,7 +101,7 @@ app.delete('/agent/surface/automations/slack-listen', async (c) => {
   if (!team_id || !slack_user_id || !channel_id) {
     return c.json({ error: 'team_id, slack_user_id, channel_id required' }, 400);
   }
-  const user = await repo.findUserBySlackIdentity(team_id, slack_user_id);
+  const user = await repo.findUserBySlackIdentity(team_id, slack_user_id, { activeOnly: true });
   if (!user) return c.json({ removed: false });
   const wsId = await surfaceFolderFor(user.id, 'slack');
   if (!wsId) return c.json({ removed: false });
@@ -129,7 +129,7 @@ app.post('/agent/surface/automations/:id/report-run', async (c) => {
   if (!parsed.success) return c.json({ error: 'invalid' }, 400);
   const { team_id, slack_user_id, outcome, window_to, items_seen, items_ingested, document_ids, error } = parsed.data;
 
-  const user = await repo.findUserBySlackIdentity(team_id, slack_user_id);
+  const user = await repo.findUserBySlackIdentity(team_id, slack_user_id, { activeOnly: true });
   if (!user) return c.json({ error: 'unmapped' }, 404);
   const wsId = await surfaceFolderFor(user.id, 'slack');
   if (!wsId) return c.json({ error: 'no_default_folder' }, 409);

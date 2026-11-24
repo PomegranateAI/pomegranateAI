@@ -102,10 +102,13 @@ export function createAutomationScheduler(deps: AutomationSchedulerDeps): Automa
       return { automation_id: a.id, outcome: 'error', error: 'not_configured' };
     }
 
-    const authHeader = `Bearer ${await repo.createSession(a.owner_user_id, 5 * 60)}`;
     const previewBody = ingestionCriteriaToRequestBody(a.criteria);
 
     try {
+      // Inside the try: a disabled owner makes createSession throw
+      // (AccountDisabledError), which records an 'account_disabled' error run
+      // and backs off like any other failure instead of crashing the tick.
+      const authHeader = `Bearer ${await repo.createSession(a.owner_user_id, 5 * 60)}`;
       const preview = await deps.dispatch(
         authHeader,
         'POST',

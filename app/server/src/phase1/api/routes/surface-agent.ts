@@ -77,7 +77,7 @@ app.post('/agent/surface/media', async (c) => {
   if (!surfaceSecretOk(c.req.header('x-surface-secret'))) return c.json({ error: 'unauthorized' }, 401);
   const form = await c.req.parseBody();
   const phone = typeof form.phone === 'string' ? form.phone : '';
-  const user = await repo.findUserByWhatsappIdentity(phone);
+  const user = await repo.findUserByWhatsappIdentity(phone, { activeOnly: true });
   if (!user) return c.json({ reply: UNMAPPED_REPLY_WHATSAPP, unmapped: true });
   const ws = await surfaceFolderFor(user.id, 'whatsapp');
   if (!ws) return c.json({ reply: NO_DEFAULT_REPLY_WHATSAPP, needs_default: true });
@@ -124,8 +124,8 @@ app.post('/agent/surface/messages', async (c) => {
 
   const user =
     surface === 'slack'
-      ? await repo.findUserBySlackIdentity(team_id, parsed.data.slack_user_id)
-      : await repo.findUserByWhatsappIdentity(parsed.data.phone);
+      ? await repo.findUserBySlackIdentity(team_id, parsed.data.slack_user_id, { activeOnly: true })
+      : await repo.findUserByWhatsappIdentity(parsed.data.phone, { activeOnly: true });
   if (!user) {
     return c.json({ reply: surface === 'slack' ? UNMAPPED_REPLY : UNMAPPED_REPLY_WHATSAPP, unmapped: true });
   }
@@ -315,8 +315,8 @@ app.post('/agent/surface/actions', async (c) => {
 
   const user =
     surface === 'slack'
-      ? await repo.findUserBySlackIdentity(parsed.data.team_id, parsed.data.slack_user_id)
-      : await repo.findUserByWhatsappIdentity(parsed.data.phone);
+      ? await repo.findUserBySlackIdentity(parsed.data.team_id, parsed.data.slack_user_id, { activeOnly: true })
+      : await repo.findUserByWhatsappIdentity(parsed.data.phone, { activeOnly: true });
   if (!user) {
     return c.json({ error: 'unmapped', reply: surface === 'slack' ? UNMAPPED_REPLY : UNMAPPED_REPLY_WHATSAPP }, 404);
   }
