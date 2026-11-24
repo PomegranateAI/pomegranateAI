@@ -121,6 +121,7 @@ export const ENV_SCHEMA: readonly EnvVar[] = [
   { name: 'SLACK_BOT_TOKEN', group: 'surfaces', secret: true, required: 'no', note: 'update delivery to Slack' },
   { name: 'UPDATES_SLACK_TOKEN', group: 'surfaces', secret: true, required: 'no' },
   // schedulers
+  { name: 'POMEGRANATE_ALLOW_EXTERNAL_RECIPIENTS', group: 'schedulers', secret: false, required: 'no', note: '1 = let update subscriptions and give broadcasts send to addresses outside the directory (off: members and Slack channels only)' },
   { name: 'UPDATES_SCHEDULER', group: 'schedulers', secret: false, required: 'no', note: '1 = run the 60 s Get-updates scheduler tick' },
   { name: 'AUTOMATIONS_SCHEDULER', group: 'schedulers', secret: false, required: 'no', note: '1 = run the 60 s automations scheduler tick' },
   // retrieval

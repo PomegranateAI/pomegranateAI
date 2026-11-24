@@ -86,6 +86,14 @@ async function call(
   return { status: r.status, json };
 }
 
+/** Invite each email into `ws` as a member (the caller must be its admin). */
+async function invite(app: any, token: string, ws: string, ...emails: string[]): Promise<void> {
+  for (const email of emails) {
+    const r = await call(app, 'POST', `/workspaces/${ws}/members`, { token, body: { email } });
+    expect(r.status).toBe(200);
+  }
+}
+
 describe('updates API', () => {
   it('creates from a topic alone, lists, edits, pauses/resumes, and deletes', async () => {
     const { app } = await loadApp();
@@ -373,6 +381,7 @@ describe('updates API', () => {
     const { app } = await loadApp();
     const token = await magic(app, 'giver@test.example');
     const ws = (await call(app, 'POST', '/workspaces', { token, body: { name: 'WG' } })).json.id;
+    await invite(app, token, ws, 'a@x.example', 'b@x.example');
 
     const give = await call(app, 'POST', `/workspaces/${ws}/updates`, {
       token,
@@ -406,6 +415,7 @@ describe('updates API', () => {
     const token = await magic(app, 'pinned@test.example');
     const ws = (await call(app, 'POST', '/workspaces', { token, body: { name: 'WP' } })).json.id;
     const other = (await call(app, 'POST', '/workspaces', { token, body: { name: 'Other' } })).json.id;
+    await invite(app, token, ws, 'a@x.example');
 
     // A 'get' watch can reach the owner's other folder…
     const get = await call(app, 'POST', `/workspaces/${ws}/updates`, {
@@ -450,6 +460,7 @@ describe('updates API', () => {
     const { app } = await loadApp();
     const token = await magic(app, 'editrcp@test.example');
     const ws = (await call(app, 'POST', '/workspaces', { token, body: { name: 'WE' } })).json.id;
+    await invite(app, token, ws, 'a@x.example', 'b@x.example', 'c@x.example');
     const sub = (
       await call(app, 'POST', `/workspaces/${ws}/updates`, {
         token,
@@ -475,6 +486,7 @@ describe('updates API', () => {
     const { app, repo } = await loadApp();
     const token = await magic(app, 'fanout@test.example');
     const ws = (await call(app, 'POST', '/workspaces', { token, body: { name: 'WF' } })).json.id;
+    await invite(app, token, ws, 'a@x.example', 'b@x.example', 'c@x.example');
     await seedTopicalNode(repo, ws, 'my shipped work');
 
     const created = await call(app, 'POST', `/workspaces/${ws}/updates`, {
@@ -527,5 +539,134 @@ describe('updates API', () => {
 
     expect((await call(app, 'DELETE', `/workspaces/${ws}/recipient-lists/${saved.json.list.id}`, { token: mine })).status).toBe(200);
     expect((await call(app, 'GET', `/workspaces/${ws}/recipient-lists`, { token: mine })).json.lists).toHaveLength(0);
+  });
+  // ── Recipients are limited to members of the directory ──────────────────
+
+  it('rejects a non-member email on create and on edit, and accepts a member (case-insensitively)', async () => {
+    const { app } = await loadApp();
+    const token = await magic(app, 'rcpt-owner@test.example');
+    const ws = (await call(app, 'POST', '/workspaces', { token, body: { name: 'WR' } })).json.id;
+    await invite(app, token, ws, 'member@x.example');
+
+    const refused = await call(app, 'POST', `/workspaces/${ws}/updates`, {
+      token,
+      body: { topic: 't', kind: 'give', recipients: ['member@x.example', 'stranger@evil.example'] },
+    });
+    expect(refused.status).toBe(400);
+    expect(refused.json).toEqual({
+      error: 'recipients_not_allowed',
+      rejected: ['stranger@evil.example'],
+      detail: 'Updates can only go to members of this directory.',
+    });
+    // Nothing was created.
+    expect((await call(app, 'GET', `/workspaces/${ws}/updates`, { token })).json.subscriptions).toHaveLength(0);
+
+    // A single `destination` is checked the same way.
+    const refusedDest = await call(app, 'POST', `/workspaces/${ws}/updates`, {
+      token,
+      body: { topic: 't', destination: 'stranger@evil.example' },
+    });
+    expect(refusedDest.status).toBe(400);
+    expect(refusedDest.json.rejected).toEqual(['stranger@evil.example']);
+
+    const ok = await call(app, 'POST', `/workspaces/${ws}/updates`, {
+      token,
+      body: { topic: 't', kind: 'give', recipients: ['Member@X.example'] },
+    });
+    expect(ok.status).toBe(201);
+    const id = ok.json.subscription.id;
+
+    const badEdit = await call(app, 'PATCH', `/workspaces/${ws}/updates/${id}`, {
+      token,
+      body: { recipients: ['member@x.example', 'stranger@evil.example'] },
+    });
+    expect(badEdit.status).toBe(400);
+    expect(badEdit.json.error).toBe('recipients_not_allowed');
+    expect(badEdit.json.rejected).toEqual(['stranger@evil.example']);
+    // The refused edit changed nothing.
+    expect((await call(app, 'GET', `/workspaces/${ws}/updates/${id}`, { token })).json.subscription.destination).toBe(
+      'Member@X.example',
+    );
+    const badDestEdit = await call(app, 'PATCH', `/workspaces/${ws}/updates/${id}`, {
+      token,
+      body: { destination: 'stranger@evil.example' },
+    });
+    expect(badDestEdit.status).toBe(400);
+  });
+
+  it("requires a 'get' watch's recipients to be members of every watched directory", async () => {
+    const { app } = await loadApp();
+    const token = await magic(app, 'multi@test.example');
+    const a = (await call(app, 'POST', '/workspaces', { token, body: { name: 'A' } })).json.id;
+    const b = (await call(app, 'POST', '/workspaces', { token, body: { name: 'B' } })).json.id;
+    await invite(app, token, a, 'both@x.example', 'onlya@x.example');
+    await invite(app, token, b, 'both@x.example');
+
+    const refused = await call(app, 'POST', `/workspaces/${a}/updates`, {
+      token,
+      body: { topic: 't', target_refs: [a, b], recipients: ['both@x.example', 'onlya@x.example'] },
+    });
+    expect(refused.status).toBe(400);
+    expect(refused.json.rejected).toEqual(['onlya@x.example']);
+
+    // Widening an existing watch's targets re-checks its recipients too.
+    const narrow = await call(app, 'POST', `/workspaces/${a}/updates`, {
+      token,
+      body: { topic: 't', recipients: ['onlya@x.example'] },
+    });
+    expect(narrow.status).toBe(201);
+    const widened = await call(app, 'PATCH', `/workspaces/${a}/updates/${narrow.json.subscription.id}`, {
+      token,
+      body: { target_refs: [a, b] },
+    });
+    expect(widened.status).toBe(400);
+    expect(widened.json.rejected).toEqual(['onlya@x.example']);
+  });
+
+  it('accepts Slack channels and linked member Slack users; rejects an unlinked Slack user and junk', async () => {
+    const { app, repo } = await loadApp();
+    const token = await magic(app, 'slacky@test.example');
+    const ws = (await call(app, 'POST', '/workspaces', { token, body: { name: 'WS' } })).json.id;
+    await invite(app, token, ws, 'linked@x.example');
+    const linked = (await repo.findUserByEmail('linked@x.example'))!;
+    await repo.upsertUserIdentity({ user_id: linked.id, kind: 'slack', team_id: 'T1', external_id: 'U0LINKED', handle: 'linked.person' });
+    // A Slack identity whose user is NOT a member of this directory.
+    const outsider = await repo.findOrCreateUser('outsider@x.example');
+    await repo.upsertUserIdentity({ user_id: outsider.id, kind: 'slack', team_id: 'T1', external_id: 'U0OUTSIDE' });
+
+    const ok = await call(app, 'POST', `/workspaces/${ws}/updates`, {
+      token,
+      body: { topic: 't', kind: 'give', medium: 'slack', recipients: ['C0CHANNEL', '#general', 'U0LINKED', '@linked.person'] },
+    });
+    expect(ok.status).toBe(201);
+
+    const refused = await call(app, 'POST', `/workspaces/${ws}/updates`, {
+      token,
+      body: {
+        topic: 't',
+        kind: 'give',
+        medium: 'slack',
+        recipients: ['C0CHANNEL', 'U0UNKNOWN', 'U0OUTSIDE', '@nobody', 'https://hooks.example/x'],
+      },
+    });
+    expect(refused.status).toBe(400);
+    expect(refused.json.rejected).toEqual(['U0UNKNOWN', 'U0OUTSIDE', '@nobody', 'https://hooks.example/x']);
+  });
+
+  it('POMEGRANATE_ALLOW_EXTERNAL_RECIPIENTS=1 restores external recipients', async () => {
+    const { app } = await loadApp();
+    const token = await magic(app, 'ext@test.example');
+    const ws = (await call(app, 'POST', '/workspaces', { token, body: { name: 'WX' } })).json.id;
+    process.env.POMEGRANATE_ALLOW_EXTERNAL_RECIPIENTS = '1';
+    try {
+      const created = await call(app, 'POST', `/workspaces/${ws}/updates`, {
+        token,
+        body: { topic: 't', kind: 'give', recipients: ['stranger@evil.example'] },
+      });
+      expect(created.status).toBe(201);
+      expect(created.json.subscription.destination).toBe('stranger@evil.example');
+    } finally {
+      delete process.env.POMEGRANATE_ALLOW_EXTERNAL_RECIPIENTS;
+    }
   });
 });

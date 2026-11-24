@@ -21,6 +21,23 @@ async function signInAndCreateWorkspace(page: any, wsName = 'Broadcast Co') {
   await expect(page.locator('.side-nav')).toBeVisible();
 }
 
+/**
+ * Broadcasts only go to members of the directory (the server refuses anyone
+ * else), so invite the recipients first, through the same members API the
+ * Share dialog uses.
+ */
+async function inviteMembers(page: any, emails: string[]) {
+  const session = await page.evaluate(() => localStorage.getItem('pmg_session'));
+  const wsId = await page.evaluate(() => localStorage.getItem('pmg_ws'));
+  for (const email of emails) {
+    const r = await page.request.post(`/api/workspaces/${wsId}/members`, {
+      headers: { authorization: `Bearer ${session}` },
+      data: { email },
+    });
+    expect(r.ok()).toBe(true);
+  }
+}
+
 /** Agents are opt-in: add one from its group's catalog, then open it. */
 async function addAgent(page: any, addLabel: string, label: string) {
   await page.getByRole('button', { name: addLabel }).first().click();
@@ -33,6 +50,7 @@ async function addAgent(page: any, addLabel: string, label: string) {
 
 test('Give updates → broadcast to many recipients, save the list, reuse it', async ({ page }) => {
   await signInAndCreateWorkspace(page);
+  await inviteMembers(page, ['ana@acme.test', 'bo@acme.test', 'cy@acme.test']);
   await addAgent(page, 'Add work agent', 'Give updates');
 
   await expect(page.locator('h1', { hasText: 'Keep your team posted on your work' })).toBeVisible();
@@ -43,7 +61,7 @@ test('Give updates → broadcast to many recipients, save the list, reuse it', a
 
   // A broadcast reports on your own folder — no folder/teammate scope picker.
   await expect(page.getByText('Add directory or teammate')).toHaveCount(0);
-  await expect(page.getByText('Reported from your own folder only', { exact: false })).toBeVisible();
+  await expect(page.getByText('Reported from across your workspace', { exact: false })).toBeVisible();
 
   // Recipients: a typed address, plus a pasted block that splits into chips.
   await page.getByRole('button', { name: 'Add teammate' }).click();
@@ -64,6 +82,19 @@ test('Give updates → broadcast to many recipients, save the list, reuse it', a
 
   // It defaults to holding for approval — it goes out under your name.
   await expect(page.getByText('Ask me to approve first')).toBeVisible();
+
+  // ── Someone outside the directory is refused, inline, and the form stays ──
+  await page.getByRole('button', { name: 'Add teammate' }).click();
+  await page.getByPlaceholder('name@company.com').fill('outsider@elsewhere.test');
+  await page.getByRole('button', { name: 'Add', exact: true }).click();
+  await page.keyboard.press('Escape');
+  await page.getByRole('button', { name: 'Create broadcast' }).click();
+  const refused = page.getByRole('alert').filter({ hasText: 'outsider@elsewhere.test' });
+  await expect(refused).toBeVisible();
+  await expect(refused).toContainText('members of this directory');
+  await expect(page.getByRole('button', { name: 'Create broadcast' })).toBeVisible(); // still open
+  await page.getByRole('button', { name: 'Remove outsider@elsewhere.test' }).click();
+  await expect(refused).toHaveCount(0);
 
   await page.getByRole('button', { name: 'Create broadcast' }).click();
 

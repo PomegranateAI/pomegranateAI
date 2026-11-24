@@ -452,6 +452,25 @@ function governanceMessage(body: string): string | null {
   return null;
 }
 
+/**
+ * The values the server refused as update recipients (400
+ * `recipients_not_allowed`: only members of the directory may receive
+ * updates), or null when `err` is some other failure.
+ */
+export function rejectedRecipients(err: unknown): string[] | null {
+  const msg = err instanceof Error ? err.message : '';
+  if (!msg.startsWith('400')) return null;
+  const brace = msg.indexOf('{');
+  if (brace < 0) return null;
+  try {
+    const j = JSON.parse(msg.slice(brace)) as { error?: string; rejected?: unknown };
+    if (j.error !== 'recipients_not_allowed' || !Array.isArray(j.rejected)) return null;
+    return j.rejected.map(String);
+  } catch {
+    return null;
+  }
+}
+
 async function callForm<T>(path: string, form: FormData): Promise<T> {
   const headers: Record<string, string> = {};
   if (_session) headers['Authorization'] = `Bearer ${_session}`;

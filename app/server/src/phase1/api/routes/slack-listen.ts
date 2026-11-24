@@ -11,6 +11,7 @@ import { ToolError } from '../../mcp/errors.js';
 import { resolveFolderRef } from '../../mcp/folder-resolve.js';
 import { getEmbedder } from '../../../lib/embeddings.js';
 import type { RunReport } from '../../updates/scheduler.js';
+import { checkRecipients, RECIPIENTS_NOT_ALLOWED_DETAIL, splitDestination } from '../../updates/recipients.js';
 import type { RecipientList, UpdateMedium, UpdateTarget } from '../../db/repo.js';
 import type { Hono } from 'hono';
 import type { AppVars } from '../routes.js';
@@ -279,6 +280,21 @@ app.post('/agent/surface/automations/:id/report-run', async (c) => {
     return destination?.trim() || null;
   };
 
+  // Recipients carry workspace-derived content, so they are limited to members
+  // of every workspace the watch draws from (plus Slack channels and the owner;
+  // see updates/recipients.ts). Returns a 400 body when any are refused.
+  async function recipientsError(
+    ownerUserId: string,
+    targets: UpdateTarget[],
+    destination: string | null | undefined,
+  ): Promise<{ error: 'recipients_not_allowed'; rejected: string[]; detail: string } | null> {
+    const recipients = splitDestination(destination);
+    if (recipients.length === 0) return null; // empty → the owner's own channel
+    const { rejected } = await checkRecipients(repo, { ownerUserId, targets, recipients });
+    if (rejected.length === 0) return null;
+    return { error: 'recipients_not_allowed', rejected, detail: RECIPIENTS_NOT_ALLOWED_DETAIL };
+  }
+
   // Create — topic is the only required field; everything else defaults.
   app.post('/workspaces/:ws/updates', authn, workspaceGate, async (c) => {
     const ws = c.get('workspace_id');
@@ -318,6 +334,10 @@ app.post('/agent/surface/automations/:id/report-run', async (c) => {
         : await resolveUpdateTargets(c, ws, owner, parsed.data.targets, parsed.data.target_refs);
     if ('error' in resolved) return c.json({ error: resolved.error }, resolved.status as 400 | 403);
 
+    const destination = normalizeDestination(parsed.data.destination, parsed.data.recipients) ?? null;
+    const refused = await recipientsError(owner, resolved.targets, destination);
+    if (refused) return c.json(refused, 400);
+
     const cadence = clampCadence(parsed.data.cadence_ms ?? 7 * 24 * 60 * 60 * 1000); // default weekly
     const topicEmbedding = await embedTopic(parsed.data.topic);
     // The first update fires NOW: watermark stays null so run 1 is a baseline
@@ -332,7 +352,7 @@ app.post('/agent/surface/automations/:id/report-run', async (c) => {
       cadence_ms: cadence,
       medium: (parsed.data.medium ?? 'email') as UpdateMedium,
       kind,
-      destination: normalizeDestination(parsed.data.destination, parsed.data.recipients) ?? null,
+      destination,
       // A 'give' watch goes out to teammates under the owner's name, so it holds
       // for approval unless the owner explicitly opts into autonomous sending.
       approval_mode: parsed.data.approval_mode ?? (kind === 'give' ? 'review' : 'autonomous'),
@@ -476,6 +496,16 @@ app.post('/agent/surface/automations/:id/report-run', async (c) => {
     if (parsed.data.medium !== undefined) patch.medium = parsed.data.medium;
     const destination = normalizeDestination(parsed.data.destination, parsed.data.recipients);
     if (destination !== undefined) patch.destination = destination;
+    // Re-check recipients whenever either side of the rule moves: new
+    // recipients, or new targets (a recipient must be a member of all of them).
+    if (patch.destination !== undefined || patch.targets !== undefined) {
+      const refused = await recipientsError(
+        owner,
+        patch.targets ?? sub.targets,
+        patch.destination !== undefined ? patch.destination : sub.destination,
+      );
+      if (refused) return c.json(refused, 400);
+    }
     if (parsed.data.approval_mode !== undefined) patch.approval_mode = parsed.data.approval_mode;
     if (parsed.data.catch_up) patch.watermark = null; // re-report from scratch next run
     await repo.updateUpdateSubscription(sub.id, patch);

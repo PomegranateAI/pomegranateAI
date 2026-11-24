@@ -6,7 +6,8 @@
  * assert the run loop's watermark / backoff / empty-window / delivery behaviour
  * directly through runDueOnce()/runSubscription().
  */
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { log } from '../../lib/log.js';
 import Database from 'better-sqlite3';
 import { migrate } from '../db/schema.js';
 import { Repo } from '../db/repo.js';
@@ -32,6 +33,13 @@ beforeEach(async () => {
   wsId = ws.id;
   ownerId = (await repo.findUserByEmail('owner@test'))!.id;
 });
+
+/** Make `email` a member of `workspace` (default: the test workspace). */
+async function addMember(email: string, workspace = wsId): Promise<string> {
+  const user = await repo.findOrCreateUser(email);
+  await repo.addMember({ workspace_id: workspace, user_id: user.id, role: 'member' });
+  return user.id;
+}
 
 /** Insert an active node into the default subgraph with a given updated_at. */
 function insertNode(
@@ -326,6 +334,7 @@ describe('update scheduler', () => {
     // above, but a 'give' broadcast is a status update to teammates, so silence
     // isn't the safe default: it should send a "nothing to report" email rather
     // than a silent no-op.
+    await addMember('a@x.example');
     const sub = await makeDueSub({ kind: 'give', destination: 'a@x.example' });
     const transport = new FakeTransport();
     const sched = createUpdateScheduler({ repo, transports: { email: transport }, synthesize: fakeSynth, now: () => CLOCK });
@@ -527,6 +536,7 @@ describe('update scheduler', () => {
 
   it('fans one broadcast out to every recipient', async () => {
     insertNode('n1', '2026-07-05T00:00:00.000Z');
+    for (const e of ['a@x.example', 'b@x.example', 'c@x.example']) await addMember(e);
     const sub = await makeDueSub({ kind: 'give', destination: 'a@x.example,b@x.example,c@x.example' });
     const transport = new FakeTransport();
     const sched = createUpdateScheduler({
@@ -546,6 +556,7 @@ describe('update scheduler', () => {
 
   it('pings the OWNER — not the recipients — to approve a review-mode broadcast', async () => {
     insertNode('n1', '2026-07-05T00:00:00.000Z');
+    await addMember('teammate@x.example');
     const sub = await makeDueSub({
       kind: 'give',
       approval_mode: 'review',
@@ -588,5 +599,97 @@ describe('update scheduler', () => {
 
     expect((await sched.runSubscription(sub)).outcome).toBe('ok');
     expect(transport.sent.map((m) => m.to)).toEqual(['owner@test']);
+  });
+  // ── Recipient re-validation at delivery time ───────────────────────────────
+
+  it('drops a recipient who has left the workspace, without logging the address', async () => {
+    insertNode('n1', '2026-07-05T00:00:00.000Z');
+    await addMember('stays@x.example');
+    const leaverId = await addMember('leaves@x.example');
+    const sub = await makeDueSub({ kind: 'give', destination: 'stays@x.example,leaves@x.example' });
+    await repo.removeMember(wsId, leaverId);
+
+    const transport = new FakeTransport();
+    const sched = createUpdateScheduler({ repo, transports: { email: transport }, synthesize: fakeSynth, now: () => CLOCK });
+    const warn = vi.spyOn(log, 'warn');
+    try {
+      expect((await sched.runSubscription(sub)).outcome).toBe('ok');
+      expect(transport.sent.map((m) => m.to)).toEqual(['stays@x.example']);
+      const call = warn.mock.calls.find((c) => c[0] === 'updates.recipients_dropped');
+      expect(call?.[1]).toMatchObject({ dropped: 1, remaining: 1 });
+      expect(JSON.stringify(call)).not.toContain('leaves@x.example');
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it('treats a broadcast whose every recipient left as "no destination" (no send, no fallback to owner)', async () => {
+    insertNode('n1', '2026-07-05T00:00:00.000Z');
+    const leaverId = await addMember('gone@x.example');
+    const sub = await makeDueSub({ kind: 'give', destination: 'gone@x.example' });
+    await repo.removeMember(wsId, leaverId);
+
+    const transport = new FakeTransport();
+    const sched = createUpdateScheduler({ repo, transports: { email: transport }, synthesize: fakeSynth, now: () => CLOCK });
+    const report = await sched.runSubscription(sub);
+    expect(report.outcome).toBe('error');
+    expect(report.error).toMatch(/no destination/);
+    expect(transport.sent).toHaveLength(0);
+    expect(await repo.listUpdateDeliveries({ owner_user_id: ownerId })).toHaveLength(0);
+    expect((await repo.getUpdateSubscription(sub.id))!.watermark).toBe(WATERMARK);
+  });
+
+  it('re-validates when an approved review-mode broadcast is sent', async () => {
+    insertNode('n1', '2026-07-05T00:00:00.000Z');
+    const leaverId = await addMember('later@x.example');
+    const sub = await makeDueSub({ kind: 'give', approval_mode: 'review', destination: 'later@x.example' });
+    const transport = new FakeTransport();
+    const sched = createUpdateScheduler({ repo, transports: { email: transport }, synthesize: fakeSynth, now: () => CLOCK });
+    expect((await sched.runSubscription(sub)).outcome).toBe('pending');
+    await repo.removeMember(wsId, leaverId); // leaves between hold and approval
+
+    const delivery = (await repo.listUpdateDeliveries({ owner_user_id: ownerId }))[0]!;
+    const sent = await sched.sendPendingDelivery(delivery.id);
+    expect(sent.outcome).toBe('error');
+    expect(transport.sent.map((m) => m.to)).toEqual(['owner@test']); // only the approval ping
+  });
+
+  it('requires membership in every target workspace, and allows Slack channels', async () => {
+    insertNode('n1', '2026-07-05T00:00:00.000Z');
+    const other = await repo.createWorkspace({ name: 'Other', owner_email: 'owner@test' });
+    await addMember('both@x.example');
+    await addMember('both@x.example', other.id);
+    await addMember('onlyone@x.example');
+    const sub = await makeDueSub({
+      targets: [
+        { workspace_id: wsId, subgraph_id: 'default' },
+        { workspace_id: other.id, subgraph_id: 'default' },
+      ],
+      destination: 'BOTH@x.example,onlyone@x.example',
+    });
+    const transport = new FakeTransport();
+    const sched = createUpdateScheduler({ repo, transports: { email: transport }, synthesize: fakeSynth, now: () => CLOCK });
+    expect((await sched.runSubscription(sub)).outcome).toBe('ok');
+    expect(transport.sent.map((m) => m.to)).toEqual(['BOTH@x.example']);
+
+    const slack = new FakeTransport();
+    const slackSub = await makeDueSub({ medium: 'slack', kind: 'give', destination: 'C0123ABC,#general,U0NOTLINKED' });
+    const slackSched = createUpdateScheduler({ repo, transports: { slack }, synthesize: fakeSynth, now: () => CLOCK });
+    expect((await slackSched.runSubscription(slackSub)).outcome).toBe('ok');
+    expect(slack.sent.map((m) => m.to)).toEqual(['C0123ABC', '#general']);
+  });
+
+  it('POMEGRANATE_ALLOW_EXTERNAL_RECIPIENTS=1 sends to non-members as before', async () => {
+    insertNode('n1', '2026-07-05T00:00:00.000Z');
+    const sub = await makeDueSub({ kind: 'give', destination: 'outsider@elsewhere.example' });
+    const transport = new FakeTransport();
+    const sched = createUpdateScheduler({ repo, transports: { email: transport }, synthesize: fakeSynth, now: () => CLOCK });
+    process.env.POMEGRANATE_ALLOW_EXTERNAL_RECIPIENTS = '1';
+    try {
+      expect((await sched.runSubscription(sub)).outcome).toBe('ok');
+    } finally {
+      delete process.env.POMEGRANATE_ALLOW_EXTERNAL_RECIPIENTS;
+    }
+    expect(transport.sent.map((m) => m.to)).toEqual(['outsider@elsewhere.example']);
   });
 });
