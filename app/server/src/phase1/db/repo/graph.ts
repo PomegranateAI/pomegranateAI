@@ -366,6 +366,13 @@ export class GraphRepo {
   /**
    * Set a node's audience. `owner_user_id` is the publishing member; once set it
    * is sticky (a teammate can't silently re-own a node). Idempotent.
+   *
+   * Passing `owner_user_id` CLAIMS an ownerless node for that member. Only
+   * the ingester may be assigned this way: the ingest paths pass the ingesting
+   * member, update_node's successor inherits the original's owner, and the
+   * audience-change routes in curation.ts pass the node's document ingester
+   * (getNodeIngester), never the caller. An admin changing an ownerless node's
+   * audience must not become its owner.
    */
   async setNodeVisibility(this: Repo,
     workspace_id: string,
@@ -474,6 +481,19 @@ export class GraphRepo {
     const f = this.documentVisibilityFilter(viewer, { aiRead, teamOnly: opts?.teamOnly });
     const r = await this.sql.one<any>(`SELECT 1 AS ok FROM documents d WHERE d.workspace_id = ? AND d.id = ?${f.sql}`, [workspace_id, document_id, ...f.params]);
     return !!r;
+  }
+
+  /**
+   * Who ingested the document a node was extracted from (documents.ingested_by),
+   * or undefined when the node has no document or the ingest predates the stamp.
+   * The natural owner of an ownerless node: an audience change by an admin hands
+   * the node to the person who brought the content in, never to the admin.
+   */
+  async getNodeIngester(this: Repo, workspace_id: string, node_id: string): Promise<string | undefined> {
+    const r = await this.sql.one<any>(`SELECT d.ingested_by AS ingested_by FROM graph_nodes gn
+         JOIN documents d ON d.workspace_id = gn.workspace_id AND d.id = gn.document_id
+        WHERE gn.workspace_id = ? AND gn.id = ?`, [workspace_id, node_id]) as { ingested_by: string | null } | undefined;
+    return r?.ingested_by ?? undefined;
   }
 
   /** Record who ingested a document, and the audience they asked for (if any). First writer wins. */
@@ -801,7 +821,7 @@ export class GraphRepo {
     workspace_id: string,
     opts?: { status?: 'pending' | 'approved' | 'rejected' | 'edited' },
     subgraph_id = 'default',
-  ): Promise<Array<CandidateT & { status: string; created_at: string; document_id?: string; subgraph_id: string }>> {
+  ): Promise<Array<CandidateT & { status: string; created_at: string; document_id?: string; subgraph_id: string; created_by?: string }>> {
     // status is BOUND, never interpolated: it arrives from a query string.
     const rows = (await this.sql.query<any>(`SELECT * FROM candidates WHERE workspace_id = ? AND subgraph_id = ? ${
           opts?.status ? 'AND status = ?' : ''
@@ -820,8 +840,9 @@ export class GraphRepo {
       created_at: string;
       document_id: string | null;
       subgraph_id: string | null;
+      created_by: string | null;
     }>;
-    const out: Array<CandidateT & { status: string; created_at: string; document_id?: string; subgraph_id: string }> = [];
+    const out: Array<CandidateT & { status: string; created_at: string; document_id?: string; subgraph_id: string; created_by?: string }> = [];
     for (const r of rows) out.push({
       id: r.id,
       proposed_node: parseStoredNode(await openJson(this, workspace_id, 'candidates.proposed_node', r.id, r.proposed_node)),
@@ -835,6 +856,7 @@ export class GraphRepo {
       created_at: r.created_at,
       document_id: r.document_id ?? undefined,
       subgraph_id: r.subgraph_id ?? subgraph_id,
+      created_by: r.created_by ?? undefined,
     });
     return out;
   }

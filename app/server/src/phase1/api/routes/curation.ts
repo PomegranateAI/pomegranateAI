@@ -31,6 +31,7 @@ const {
   userEmail,
   listShapeAutomations,
   viewerFor,
+  isWorkspaceOwnerTier,
 } = core;
 // ---------- candidates ----------
 
@@ -39,23 +40,35 @@ const {
  * (approve keeps proposed_node.id as the persisted node id); one with no note
  * yet falls back to its document's audience. Without this the Curate list read
  * the content and source quotes behind other members' private/only_me notes.
+ *
+ * A candidate with no document has no audience to inherit, so it is visible
+ * only to the member who submitted it (`created_by`) and to the workspace
+ * owner tier (owner or workspace_admin). A hand-submitted candidate is gated
+ * by its creator even when its proposed_node.id names an existing node, so a
+ * member can't surface their text under someone else's team note. Legacy
+ * document-less rows with no recorded creator are owner-tier only.
  */
-async function candidatesVisibleTo<T extends { proposed_node: { id: string }; document_id?: string }>(
+async function candidatesVisibleTo<T extends { proposed_node: { id: string }; document_id?: string; created_by?: string }>(
   ws: string,
   cands: T[],
   viewer: string | undefined,
+  privileged: boolean,
 ): Promise<T[]> {
   if (!viewer || cands.length === 0) return cands;
   const access = await repo.getNodeAccessMap(ws, [...new Set(cands.map((k) => k.proposed_node.id))]);
   const docOk = new Map<string, boolean>();
   const out: T[] = [];
   for (const k of cands) {
+    if (!k.document_id && k.created_by) {
+      if (privileged || k.created_by === viewer) out.push(k);
+      continue;
+    }
     const a = access.get(k.proposed_node.id);
     if (a) {
       if (a.visibility === 'team' || (!!a.owner_user_id && a.owner_user_id === viewer)) out.push(k);
       continue;
     }
-    if (!k.document_id) { out.push(k); continue; }
+    if (!k.document_id) { if (privileged) out.push(k); continue; }
     if (!docOk.has(k.document_id)) docOk.set(k.document_id, await repo.documentVisibleToViewer(ws, k.document_id, viewer));
     if (docOk.get(k.document_id)) out.push(k);
   }
@@ -70,6 +83,7 @@ app.get('/workspaces/:ws/candidates', authn, workspaceGate, async (c) => {
   if (!statusParsed.success) return c.json({ error: 'invalid', detail: 'status must be pending, approved, rejected or edited' }, 400);
   const status = statusParsed.data;
   const viewer = viewerFor(c);
+  const privileged = !viewer || await isWorkspaceOwnerTier(c, ws);
   // A subgraph selector (header or `?subgraph=`) scopes to that one subgraph —
   // preserves the single-subgraph isolation contract. With NO selector, the
   // list spans every subgraph: the unified Curate inbox + its pending badge
@@ -78,12 +92,12 @@ app.get('/workspaces/:ws/candidates', authn, workspaceGate, async (c) => {
   if (hasSelector) {
     const sg = await resolveSubgraph(c, ws);
     if (!sg) return c.json({ error: 'unknown folder' }, 400);
-    return c.json({ candidates: await candidatesVisibleTo(ws, await repo.listCandidates(ws, { status }, sg.id), viewer) });
+    return c.json({ candidates: await candidatesVisibleTo(ws, await repo.listCandidates(ws, { status }, sg.id), viewer, privileged) });
   }
   const ids = await subgraphIds(ws);
   const candidates = [];
   for (const id of ids) candidates.push(...await repo.listCandidates(ws, { status }, id));
-  return c.json({ candidates: await candidatesVisibleTo(ws, candidates, viewer) });
+  return c.json({ candidates: await candidatesVisibleTo(ws, candidates, viewer, privileged) });
 });
 
 app.post('/workspaces/:ws/candidates', authn, workspaceGate, async (c) => {
@@ -97,7 +111,9 @@ app.post('/workspaces/:ws/candidates', authn, workspaceGate, async (c) => {
   const subgraph_id = sgSel?.id ?? 'default';
   const kindErr = validateNode(await profileFor(ws, subgraph_id), parsed.data.proposed_node);
   if (kindErr) return c.json({ error: 'profile_mismatch', detail: kindErr }, 422);
-  await repo.insertCandidate(ws, parsed.data, undefined, subgraph_id);
+  // Record the submitting member: a document-less candidate has no document
+  // audience to inherit, so its creator (plus the owner tier) gates who sees it.
+  await repo.insertCandidate(ws, parsed.data, undefined, subgraph_id, c.get('user_id'));
   return c.json({ ok: true });
 });
 
@@ -106,12 +122,28 @@ app.post('/workspaces/:ws/candidates', authn, workspaceGate, async (c) => {
 // Change who can see a node, a document's nodes, or every node of a kind.
 // All sharing/ACL enforcement is server-side.
 
-/** Reject a visibility change by anyone but the node's owner (or a workspace admin). */
-async function canManageNode(ws: string, node_id: string, user_id: string, role: string): Promise<boolean> {
+/**
+ * Who may change a node's audience: its owner, or the workspace owner tier
+ * (owner or workspace_admin). An ownerless (cloud-native) node is owner-tier
+ * only; letting any member change it would let them hide a shared note from
+ * the whole team. `viewer` undefined = single-user local mode: permissive.
+ * `privileged` is isWorkspaceOwnerTier for the caller, computed once per request.
+ */
+async function canManageNode(ws: string, node_id: string, viewer: string | undefined, privileged: boolean): Promise<boolean> {
   const v = await repo.getNodeVisibility(ws, node_id);
   if (!v) return false;
-  if (!v.owner_user_id) return true; // cloud-native node, no owner gate
-  return v.owner_user_id === user_id || role === 'workspace_admin';
+  if (!viewer || privileged) return true;
+  return !!v.owner_user_id && v.owner_user_id === viewer;
+}
+
+/**
+ * Change a node's audience on behalf of `actor` without claiming it. An
+ * ownerless node is handed to its document's ingester (if recorded), the same
+ * owner ingest would have assigned; otherwise it stays ownerless. The caller is
+ * never made the owner just for changing the audience.
+ */
+async function changeNodeAudience(ws: string, node_id: string, visibility: 'team' | 'private' | 'only_me', actor: string): Promise<void> {
+  await repo.setNodeVisibility(ws, node_id, visibility, await repo.getNodeIngester(ws, node_id), actor);
 }
 
 const SyncVisibilityBody = z.object({
@@ -122,13 +154,14 @@ const SyncVisibilityBody = z.object({
 app.post('/workspaces/:ws/sync/nodes/:id/visibility', authn, workspaceGate, async (c) => {
   const ws = c.get('workspace_id');
   const user_id = c.get('user_id');
-  const role = c.get('role');
   const node_id = c.req.param('id');
-  if (!await canManageNode(ws, node_id, user_id, role)) return c.json({ error: 'forbidden' }, 403);
+  const viewer = viewerFor(c);
+  const privileged = !viewer || await isWorkspaceOwnerTier(c, ws);
+  if (!await canManageNode(ws, node_id, viewer, privileged)) return c.json({ error: 'forbidden' }, 403);
   const parsed = SyncVisibilityBody.safeParse(await c.req.json().catch(() => null));
   if (!parsed.success) return c.json({ error: 'invalid' }, 400);
   const { visibility } = parsed.data;
-  await repo.setNodeVisibility(ws, node_id, visibility, user_id, user_id);
+  await changeNodeAudience(ws, node_id, visibility, user_id);
   await materializeUsePhaseRedaction(ws, [node_id], visibility);
   return c.json({ ok: true, node_id, visibility });
 });
@@ -141,21 +174,22 @@ app.post('/workspaces/:ws/sync/nodes/:id/visibility', authn, workspaceGate, asyn
 app.post('/workspaces/:ws/sync/document/:id/visibility', authn, workspaceGate, async (c) => {
   const ws = c.get('workspace_id');
   const user_id = c.get('user_id');
-  const role = c.get('role');
   const document_id = c.req.param('id');
   const parsed = SyncVisibilityBody.safeParse(await c.req.json().catch(() => null));
   if (!parsed.success) return c.json({ error: 'invalid' }, 400);
   const { visibility } = parsed.data;
   const nodeIds = await repo.listNodeIdsByDocument(ws, document_id);
   if (nodeIds.length === 0) return c.json({ error: 'no nodes for document' }, 404);
+  const viewer = viewerFor(c);
+  const privileged = !viewer || await isWorkspaceOwnerTier(c, ws);
   const changed: string[] = [];
   const skipped: string[] = [];
   for (const node_id of nodeIds) {
-    if (!await canManageNode(ws, node_id, user_id, role)) {
+    if (!await canManageNode(ws, node_id, viewer, privileged)) {
       skipped.push(node_id);
       continue;
     }
-    await repo.setNodeVisibility(ws, node_id, visibility, user_id, user_id);
+    await changeNodeAudience(ws, node_id, visibility, user_id);
     changed.push(node_id);
   }
   await materializeUsePhaseRedaction(ws, changed, visibility);
@@ -177,21 +211,22 @@ app.post('/workspaces/:ws/sync/document/:id/visibility', authn, workspaceGate, a
 app.post('/workspaces/:ws/sync/kind/:kind/visibility', authn, workspaceGate, async (c) => {
   const ws = c.get('workspace_id');
   const user_id = c.get('user_id');
-  const role = c.get('role');
   const kind = c.req.param('kind');
   const parsed = SyncVisibilityBody.safeParse(await c.req.json().catch(() => null));
   if (!parsed.success) return c.json({ error: 'invalid' }, 400);
   const { visibility } = parsed.data;
   const nodeIds = await repo.listNodeIdsByKind(ws, kind);
   if (nodeIds.length === 0) return c.json({ error: 'no nodes for kind' }, 404);
+  const viewer = viewerFor(c);
+  const privileged = !viewer || await isWorkspaceOwnerTier(c, ws);
   const changed: string[] = [];
   const skipped: string[] = [];
   for (const node_id of nodeIds) {
-    if (!await canManageNode(ws, node_id, user_id, role)) {
+    if (!await canManageNode(ws, node_id, viewer, privileged)) {
       skipped.push(node_id);
       continue;
     }
-    await repo.setNodeVisibility(ws, node_id, visibility, user_id, user_id);
+    await changeNodeAudience(ws, node_id, visibility, user_id);
     changed.push(node_id);
   }
   await materializeUsePhaseRedaction(ws, changed, visibility);
