@@ -37,6 +37,16 @@ describe('TokenBucketLimiter', () => {
     expect(rl.take('ip', t0)).toBe(false);
     expect(rl.retryAfterSec('ip', t0)).toBe(3);
   });
+
+  it('available() reports without consuming', () => {
+    const rl = new TokenBucketLimiter({ capacity: 1, refillIntervalMs: 1000 });
+    const t0 = 1_000_000;
+    expect(rl.available('ip', t0)).toBe(true);
+    expect(rl.available('ip', t0)).toBe(true);
+    expect(rl.take('ip', t0)).toBe(true);
+    expect(rl.available('ip', t0)).toBe(false);
+    expect(rl.available('ip', t0 + 1000)).toBe(true);
+  });
 });
 
 describe('authLimiterFromEnv', () => {

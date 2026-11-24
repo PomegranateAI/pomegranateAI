@@ -28,6 +28,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { RESPONSE_ALREADY_SENT } from '@hono/node-server/utils/response';
 import { withLlmContext } from '../../lib/llm-context.js';
+import { AuthGuard } from '../api/rate-limit.js';
 import { oauthScopeForTool, resolveOAuthAccess } from '../oauth/server.js';
 import {
   createTools,
@@ -115,7 +116,7 @@ export function capabilityUrlsEnabled(): boolean {
   return process.env.MCP_CAPABILITY_URLS !== '0';
 }
 
-export function mountMcpHttp(app: Hono<any, any, any>, deps: McpDeps): void {
+export function mountMcpHttp(app: Hono<any, any, any>, deps: McpDeps, guard: AuthGuard = new AuthGuard()): void {
   const router = app as unknown as Hono<{ Variables: McpVars }>;
   const tools = createTools(deps);
 
@@ -126,10 +127,14 @@ export function mountMcpHttp(app: Hono<any, any, any>, deps: McpDeps): void {
     });
   }
 
-  async function resolveCredential(c: any): Promise<Resolution | undefined> {
+  /** Resolve the Bearer credential under the guard's per-IP failure budget. */
+  async function resolveCredential(c: any): Promise<{ value?: Resolution; limited?: Response }> {
     const auth = c.req.header('Authorization');
-    if (!auth?.startsWith('Bearer ')) return undefined;
-    const token = auth.slice(7);
+    const token = auth?.startsWith('Bearer ') ? (auth.slice(7) as string) : undefined;
+    return guard.check(c, token, () => (token ? lookupCredential(token, c) : undefined));
+  }
+
+  async function lookupCredential(token: string, c: any): Promise<Resolution | undefined> {
     const oauth = await resolveOAuthAccess(deps.repo, token, c.req.url);
     if (oauth) {
       await deps.repo.recordOAuthUse(oauth.id);
@@ -146,7 +151,8 @@ export function mountMcpHttp(app: Hono<any, any, any>, deps: McpDeps): void {
 
   // Auth: legacy pmg_ tokens and OAuth access tokens coexist.
   async function tokenGate(c: any, next: any) {
-    const resolved = await resolveCredential(c);
+    const { value: resolved, limited } = await resolveCredential(c);
+    if (limited) return limited;
     if (!resolved) return challenge(c);
     c.set('workspace_id', resolved.workspace_id);
     c.set('home_workspace_id', resolved.home_workspace_id);
@@ -311,7 +317,8 @@ export function mountMcpHttp(app: Hono<any, any, any>, deps: McpDeps): void {
   }
 
   router.post('/mcp/server', async (c) => {
-    const resolved = await resolveCredential(c);
+    const { value: resolved, limited } = await resolveCredential(c);
+    if (limited) return limited;
     if (!resolved) return challenge(c);
 
     // The streamable transport writes straight to the Node response; that
@@ -350,7 +357,9 @@ export function mountMcpHttp(app: Hono<any, any, any>, deps: McpDeps): void {
   // proxy already forwards this path, so no reverse-proxy change is needed.
   router.post('/mcp/connector/:secret', async (c) => {
     if (!capabilityUrlsEnabled()) return c.json({ error: 'not found' }, 404);
-    const raw = await deps.repo.resolveConnectorSecret(c.req.param('secret'));
+    const secret = c.req.param('secret');
+    const { value: raw, limited } = await guard.check(c, secret, () => deps.repo.resolveConnectorSecret(secret));
+    if (limited) return limited;
     if (!raw) return c.json({ error: 'invalid connector' }, 401);
     const resolved = await effectiveResolution(deps, raw, 'connector');
 

@@ -24,7 +24,7 @@ import type { RouteCore } from './core.js';
 
 export function registerSurfaceAgent(app: Hono<{ Variables: AppVars }>, core: RouteCore): void {
 const {
-  surfaceSecretOk,
+  surfaceDenied,
   repo,
   surfaceFolderFor,
   media,
@@ -74,7 +74,8 @@ app.use(
   bodyLimit({ maxSize: 25 * 1024 * 1024 + 64 * 1024, onError: (c) => c.json({ error: 'file_too_large' }, 413) }),
 );
 app.post('/agent/surface/media', async (c) => {
-  if (!surfaceSecretOk(c.req.header('x-surface-secret'))) return c.json({ error: 'unauthorized' }, 401);
+  const denied = await surfaceDenied(c);
+  if (denied) return denied;
   const form = await c.req.parseBody();
   const phone = typeof form.phone === 'string' ? form.phone : '';
   const user = await repo.findUserByWhatsappIdentity(phone);
@@ -111,7 +112,8 @@ app.post('/agent/surface/media', async (c) => {
 
 app.post('/agent/surface/messages', async (c) => {
   if (!process.env.SURFACE_AGENT_SECRET) return c.json({ error: 'surface agent not configured' }, 501);
-  if (!surfaceSecretOk(c.req.header('x-surface-secret'))) return c.json({ error: 'unauthorized' }, 401);
+  const denied = await surfaceDenied(c);
+  if (denied) return denied;
   const parsed = SurfaceMsgBody.safeParse(await c.req.json().catch(() => null));
   if (!parsed.success) return c.json({ error: 'invalid' }, 400);
   const { surface, thread_key } = parsed.data;
@@ -307,7 +309,8 @@ const SurfaceActionBody = z.discriminatedUnion('surface', [SlackActionBody, What
 
 app.post('/agent/surface/actions', async (c) => {
   if (!process.env.SURFACE_AGENT_SECRET) return c.json({ error: 'surface agent not configured' }, 501);
-  if (!surfaceSecretOk(c.req.header('x-surface-secret'))) return c.json({ error: 'unauthorized' }, 401);
+  const denied = await surfaceDenied(c);
+  if (denied) return denied;
   const parsed = SurfaceActionBody.safeParse(await c.req.json().catch(() => null));
   if (!parsed.success) return c.json({ error: 'invalid' }, 400);
   const { surface, tool, args } = parsed.data;
