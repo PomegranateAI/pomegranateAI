@@ -36,8 +36,10 @@ export function registerMediaRoutes(
   app.get('/workspaces/:ws/documents/:id/assets', authn, gate, async (c) => {
     const ws = c.get('workspace_id');
     const user = c.get('user_id');
-    if (!await repo.getDocument(ws, c.req.param('id'))) return c.json({ error: 'not_found' }, 404);
+    // Human read: the document must be visible to the caller (missing and
+    // hidden both answer 404), then each asset's own visibility applies.
     const assets = await media.documentAssets(ws, c.req.param('id'), user);
+    if (!assets) return c.json({ error: 'not_found' }, 404);
     return c.json({ assets: await Promise.all(assets.map(async (a) => ({ ...(await descriptor(a)), can_share: a.owner_user_id === user }))) });
   });
   app.get('/workspaces/:ws/assets/:id/text', authn, gate, async (c) => {
@@ -50,6 +52,12 @@ export function registerMediaRoutes(
       return c.json({ error: error instanceof MediaError ? error.code : 'asset_unavailable' }, error instanceof MediaError ? error.status : 503);
     }
   });
+  // Web (human) download. `media.authorized` admits the owner, including for
+  // their own only_me attachments (human eyes may see them), and any member
+  // when the asset's visibility is 'team'. A non-owner therefore reaches only
+  // an asset its owner explicitly shared, and that share holds even when the
+  // asset is attached only to nodes or documents the member cannot see. This
+  // is by design. The MCP route is stricter (MediaService.aiReadable).
   app.get('/workspaces/:ws/assets/:id/content', authn, gate, async (c) => {
     return serveMediaContent(c, media, c.get('workspace_id'), c.req.param('id'), c.get('user_id'));
   });
@@ -134,9 +142,9 @@ export function registerMediaRoutes(
 }
 
 /** Shared byte response for session and MCP authenticated downloads. */
-export async function serveMediaContent(c: any, media: MediaService, ws: string, id: string, user: string) {
+export async function serveMediaContent(c: any, media: MediaService, ws: string, id: string, user: string, opts?: { aiRead?: boolean }) {
     try {
-      const asset = await media.authorized(ws, id, user);
+      const asset = opts?.aiRead ? await media.aiReadable(ws, id, user) : await media.authorized(ws, id, user);
       const bytes = await media.read(asset);
       const headers: Record<string, string> = {
         'content-type': asset.mime,
