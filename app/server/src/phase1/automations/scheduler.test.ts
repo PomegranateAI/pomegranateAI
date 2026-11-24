@@ -148,4 +148,22 @@ describe('automations scheduler', () => {
     expect(report.outcome).toBe('error');
     expect(report.error).toContain('unsupported kind');
   });
+
+  it('a disabled owner gets no session: the run fails (account_disabled) and backs off, never dispatching', async () => {
+    const automation = await makeAutomation();
+    await repo.disableUser(ownerId);
+    let calls = 0;
+    const dispatch: AppsRouteDispatcher = async () => {
+      calls++;
+      return { status: 200, json: { items: [] } };
+    };
+    const scheduler = createAutomationScheduler({ repo, dispatch, now: () => CLOCK });
+    const report = await scheduler.runAutomation((await repo.getAutomation(wsId, automation.id))!);
+    expect(report.outcome).toBe('error');
+    expect(report.error).toBe('account_disabled');
+    expect(calls).toBe(0);
+    const after = (await repo.getAutomation(wsId, automation.id))!;
+    expect(after.fail_count).toBe(1);
+    expect(Date.parse(after.next_run_at!)).toBeGreaterThan(CLOCK.getTime());
+  });
 });

@@ -160,9 +160,9 @@ export async function resolveOAuthAccess(repo: Repo, token: string, requestUrl: 
   if (!token.startsWith('oat_')) return undefined;
   const row = repo.db.prepare(
     `SELECT t.id, t.grant_id, g.user_id, g.resource, g.scopes, g.workspace_ids
-       FROM oauth_tokens t JOIN oauth_grants g ON g.id = t.grant_id
+       FROM oauth_tokens t JOIN oauth_grants g ON g.id = t.grant_id JOIN users u ON u.id = g.user_id
       WHERE t.token_hash = ? AND t.kind = 'access' AND t.revoked_at IS NULL
-        AND t.expires_at > ? AND g.revoked_at IS NULL`,
+        AND t.expires_at > ? AND g.revoked_at IS NULL AND u.disabled_at IS NULL`,
   ).get(hash(token), nowIso()) as any;
   if (!row || row.resource !== resourceUri(requestUrl)) return undefined;
   // Membership is re-checked on every use: a grant never outlives the membership it was given under.
@@ -318,6 +318,7 @@ export function mountOAuth(app: Hono<any, any, any>, repo: Repo, opts: MountOAut
       const row = repo.db.prepare(`SELECT * FROM oauth_authorization_codes WHERE code_hash = ? AND consumed_at IS NULL AND expires_at > ?`)
         .get(hash(String(form.code || '')), nowIso()) as any;
       if (!row || row.client_id !== form.client_id || row.redirect_uri !== form.redirect_uri || row.resource !== form.resource) return c.json({ error: 'invalid_grant' }, 400);
+      if (await repo.isUserDisabled(row.user_id)) return c.json({ error: 'invalid_grant' }, 400);
       const challenge = createHash('sha256').update(String(form.code_verifier || '')).digest('base64url');
       const a = Buffer.from(challenge), b = Buffer.from(row.code_challenge);
       if (a.length !== b.length || !timingSafeEqual(a, b)) return c.json({ error: 'invalid_grant' }, 400);
@@ -362,6 +363,7 @@ export function mountOAuth(app: Hono<any, any, any>, repo: Repo, opts: MountOAut
       const row = repo.db.prepare(`SELECT t.*, g.client_id, g.resource, g.scopes, g.user_id, g.workspace_ids FROM oauth_tokens t JOIN oauth_grants g ON g.id=t.grant_id
         WHERE t.token_hash=? AND t.kind='refresh' AND t.revoked_at IS NULL AND t.consumed_at IS NULL AND t.expires_at > ? AND g.revoked_at IS NULL`).get(tokenHash, nowIso()) as any;
       if (!row || row.client_id !== form.client_id || row.resource !== form.resource) return c.json({ error: 'invalid_grant' }, 400);
+      if (await repo.isUserDisabled(row.user_id)) return c.json({ error: 'invalid_grant' }, 400);
       const pair = repo.db.transaction(() => {
         const used = repo.db.prepare(`UPDATE oauth_tokens SET consumed_at=? WHERE token_hash=? AND consumed_at IS NULL`).run(nowIso(), tokenHash).changes;
         return used ? tokenPair(repo, row.grant_id, row.family_id) : null;

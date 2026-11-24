@@ -87,6 +87,15 @@ function withoutLegacyPlan<T>(rows: T[]): T[] {
   });
 }
 
+/** Thrown by createSession for an account whose disabled_at is set: the
+ *  belt-and-braces backstop behind every sign-in path's own check. */
+export class AccountDisabledError extends Error {
+  constructor() {
+    super('account_disabled');
+    this.name = 'AccountDisabledError';
+  }
+}
+
 export class IdentityRepo {
   // ---------- workspaces / users ----------
 
@@ -447,12 +456,14 @@ export class IdentityRepo {
    * match any team); with team_id null (a non-Slack surface resolving a
    * teammate ref), any team's identity matches.
    */
-  async findUserBySlackIdentity(this: Repo, team_id: string | null, ref: string): Promise<User | undefined> {
+  async findUserBySlackIdentity(this: Repo, team_id: string | null, ref: string, opts: { activeOnly?: boolean } = {}): Promise<User | undefined> {
     const cleaned = ref.replace(/^@/, '').trim();
+    // activeOnly: surfaces acting AS the user skip a disabled account, so a
+    // leaver's Slack/WhatsApp identity reads as unmapped.
     const row = (await this.sql.one<any>(`SELECT u.* FROM user_identities ui JOIN users u ON u.id = ui.user_id
          WHERE ui.kind = 'slack'
            AND (? IS NULL OR ui.team_id IS NULL OR ui.team_id = ?)
-           AND (ui.external_id = ? OR ui.handle = ? COLLATE NOCASE)
+           AND (ui.external_id = ? OR ui.handle = ? COLLATE NOCASE)${opts.activeOnly ? ' AND u.disabled_at IS NULL' : ''}
          LIMIT 1`, [team_id, team_id, cleaned, cleaned])) as User | undefined;
     return row;
   }
@@ -465,11 +476,11 @@ export class IdentityRepo {
    * team scoping for WhatsApp (one bot number, kind='whatsapp' rows always
    * carry team_id NULL).
    */
-  async findUserByWhatsappIdentity(this: Repo, phone: string): Promise<User | undefined> {
+  async findUserByWhatsappIdentity(this: Repo, phone: string, opts: { activeOnly?: boolean } = {}): Promise<User | undefined> {
     const digits = normalizePhoneDigits(phone);
     if (!digits) return undefined;
     const row = (await this.sql.one<any>(`SELECT u.* FROM user_identities ui JOIN users u ON u.id = ui.user_id
-         WHERE ui.kind = 'whatsapp' AND ui.external_id = ?
+         WHERE ui.kind = 'whatsapp' AND ui.external_id = ?${opts.activeOnly ? ' AND u.disabled_at IS NULL' : ''}
          LIMIT 1`, [digits])) as User | undefined;
     return row;
   }
@@ -707,6 +718,9 @@ export class IdentityRepo {
     ttlSec = sessionPolicy().ttlSec,
     opts: { mfaEnrollmentRequired?: boolean; passwordChangeRequired?: boolean; viaSso?: boolean } = {},
   ): Promise<string> {
+    // Central guard: no sign-in path (or the automations scheduler) can mint
+    // a session for a disabled account, even if its own check is missing.
+    if (await this.isUserDisabled(user_id)) throw new AccountDisabledError();
     const token = `sess_${nanoid(24)}`;
     const now = new Date();
     const exp = new Date(now.getTime() + ttlSec * 1000);
@@ -717,13 +731,21 @@ export class IdentityRepo {
   /**
    * Disable an account (leaver via SCIM or an admin): every way in
    * ends at once — web sessions, MCP connection tokens, claude.ai connector
-   * links and assistant (OAuth) connections. Memberships stay, so re-enabling
-   * restores access. Returns what was revoked.
+   * links and assistant (OAuth) connections, plus anything outstanding that
+   * could mint one later: pending second-step (MFA) links, password-reset
+   * links and unredeemed OAuth authorization codes. Memberships stay, so
+   * re-enabling restores access. Returns what was revoked.
    */
-  async disableUser(this: Repo, user_id: string): Promise<{ sessions: number; mcp_tokens: number; connectors: number; oauth_grants: number }> {
+  async disableUser(this: Repo, user_id: string): Promise<{
+    sessions: number; mcp_tokens: number; connectors: number; oauth_grants: number;
+    mfa_challenges: number; password_reset_tokens: number; oauth_codes: number;
+  }> {
     const now = new Date().toISOString();
     await this.sql.exec(`UPDATE users SET disabled_at = COALESCE(disabled_at, ?) WHERE id = ?`, [now, user_id]);
     const sessions = (await this.sql.exec(`DELETE FROM sessions WHERE user_id = ?`, [user_id])).changes;
+    const mfa_challenges = (await this.sql.exec(`DELETE FROM mfa_challenges WHERE user_id = ?`, [user_id])).changes;
+    const password_reset_tokens = (await this.sql.exec(`DELETE FROM password_reset_tokens WHERE user_id = ?`, [user_id])).changes;
+    const oauth_codes = (await this.sql.exec(`UPDATE oauth_authorization_codes SET consumed_at = ? WHERE user_id = ? AND consumed_at IS NULL`, [now, user_id])).changes;
     const mcp_tokens = (await this.sql.exec(`UPDATE mcp_tokens SET revoked_at = ? WHERE user_id = ? AND revoked_at IS NULL`, [now, user_id])).changes;
     const connectors = (await this.sql.exec(`UPDATE claude_ai_connectors SET revoked_at = ? WHERE user_id = ? AND revoked_at IS NULL`, [now, user_id])).changes;
     const grants = (await this.sql.query<any>(`SELECT id FROM oauth_grants WHERE user_id = ? AND revoked_at IS NULL`, [user_id])) as Array<{ id: string }>;
@@ -731,7 +753,7 @@ export class IdentityRepo {
       await this.sql.exec(`UPDATE oauth_grants SET revoked_at = ? WHERE id = ?`, [now, g.id]);
       await this.sql.exec(`UPDATE oauth_tokens SET revoked_at = ? WHERE grant_id = ? AND revoked_at IS NULL`, [now, g.id]);
     }
-    return { sessions, mcp_tokens, connectors, oauth_grants: grants.length };
+    return { sessions, mcp_tokens, connectors, oauth_grants: grants.length, mfa_challenges, password_reset_tokens, oauth_codes };
   }
 
   async enableUser(this: Repo, user_id: string): Promise<void> {
@@ -754,13 +776,17 @@ export class IdentityRepo {
     { user_id: string; mfa_enrollment_required: boolean; password_change_required: boolean; via_sso: boolean } | undefined
   > {
     const key = sessionTokenKey(token);
-    const row = (await this.sql.one<any>(`SELECT user_id, created_at, expires_at, last_seen_at, mfa_enrollment_required, password_change_required, via_sso FROM sessions WHERE token = ?`, [key])) as
-      | { user_id: string; created_at: string; expires_at: string; last_seen_at: string | null; mfa_enrollment_required: number; password_change_required: number; via_sso: number }
+    // Joined to users so a disabled account's session is refused in the same
+    // single lookup (disableUser deletes sessions too; this covers any that
+    // slip past it, e.g. one minted concurrently with the disable).
+    const row = (await this.sql.one<any>(`SELECT s.user_id, s.created_at, s.expires_at, s.last_seen_at, s.mfa_enrollment_required, s.password_change_required, s.via_sso, u.disabled_at
+         FROM sessions s LEFT JOIN users u ON u.id = s.user_id WHERE s.token = ?`, [key])) as
+      | { user_id: string; created_at: string; expires_at: string; last_seen_at: string | null; mfa_enrollment_required: number; password_change_required: number; via_sso: number; disabled_at: string | null }
       | undefined;
     if (!row) return undefined;
     const now = Date.now();
     const lastSeen = Date.parse(row.last_seen_at ?? row.created_at);
-    if (Date.parse(row.expires_at) <= now || now - lastSeen > sessionPolicy().idleSec * 1000) {
+    if (row.disabled_at || Date.parse(row.expires_at) <= now || now - lastSeen > sessionPolicy().idleSec * 1000) {
       await this.sql.exec(`DELETE FROM sessions WHERE token = ?`, [key]);
       return undefined;
     }
@@ -826,8 +852,8 @@ export class IdentityRepo {
     token: string,
   ): Promise<{ id: string; workspace_id: string; user_id: string } | undefined> {
     const tokenHash = sha256(token);
-    const row = (await this.sql.one<any>(`SELECT id, workspace_id, user_id FROM mcp_tokens
-         WHERE token_hash = ? AND revoked_at IS NULL AND expires_at > ?`, [tokenHash, new Date().toISOString()])) as { id: string; workspace_id: string; user_id: string } | undefined;
+    const row = (await this.sql.one<any>(`SELECT t.id, t.workspace_id, t.user_id FROM mcp_tokens t JOIN users u ON u.id = t.user_id
+         WHERE t.token_hash = ? AND t.revoked_at IS NULL AND t.expires_at > ? AND u.disabled_at IS NULL`, [tokenHash, new Date().toISOString()])) as { id: string; workspace_id: string; user_id: string } | undefined;
     if (row) {
       (await this.sql.exec(`UPDATE mcp_tokens SET last_used_at = datetime('now') WHERE token_hash = ?`, [tokenHash]));
     }
@@ -881,8 +907,8 @@ export class IdentityRepo {
     secret: string,
   ): Promise<{ id: string; workspace_id: string; user_id: string } | undefined> {
     const secretHash = sha256(secret);
-    const row = (await this.sql.one<any>(`SELECT id, workspace_id, user_id FROM claude_ai_connectors
-         WHERE secret_hash = ? AND revoked_at IS NULL`, [secretHash])) as { id: string; workspace_id: string; user_id: string } | undefined;
+    const row = (await this.sql.one<any>(`SELECT c.id, c.workspace_id, c.user_id FROM claude_ai_connectors c JOIN users u ON u.id = c.user_id
+         WHERE c.secret_hash = ? AND c.revoked_at IS NULL AND u.disabled_at IS NULL`, [secretHash])) as { id: string; workspace_id: string; user_id: string } | undefined;
     if (row) {
       (await this.sql.exec(`UPDATE claude_ai_connectors SET last_used_at = datetime('now') WHERE secret_hash = ?`, [secretHash]));
     }

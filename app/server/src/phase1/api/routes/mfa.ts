@@ -163,6 +163,8 @@ export function registerMfa(app: Hono<{ Variables: AppVars }>, core: RouteCore):
     if (!challenge) return c.json({ error: 'expired' }, 401);
     const user = await repo.getUserById(challenge.user_id);
     if (!user) return c.json({ error: 'expired' }, 401);
+    // disableUser drops outstanding challenges; this covers one that raced it.
+    if (await repo.isUserDisabled(user.id)) return c.json({ error: 'expired' }, 401);
     if (await repo.isAuthLocked(user.id)) {
       log.warn('auth.sign_in_locked', { method: challenge.method, factor: 'mfa' });
       return c.json({ error: 'expired' }, 401);
