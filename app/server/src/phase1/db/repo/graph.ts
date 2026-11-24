@@ -1044,7 +1044,15 @@ export class GraphRepo {
     return openRows(rows, async (r) => { r.data = await openJson(this, ws, 'graph_nodes.data', r.id, r.data); });
   }
 
-  async listDocumentsIngestedSince(this: Repo, ws: string, since: string, subgraph_id: string): Promise<unknown[]> {
+  /**
+   * Documents (re-)ingested after `since`, routed to `subgraph_id`. When a
+   * `viewer` is given the rows pass through `documentVisibilityFilter` (with
+   * `aiRead` excluding their own only_me material), so another member's
+   * private document — and its summary — never reaches the viewer's change
+   * window or digest. No viewer → unfiltered (single-user local engine).
+   */
+  async listDocumentsIngestedSince(this: Repo, ws: string, since: string, subgraph_id: string, opts?: { viewer?: string; aiRead?: boolean }): Promise<unknown[]> {
+    const vis = this.documentVisibilityFilter(opts?.viewer, { aiRead: opts?.aiRead, alias: 'd' });
     const rows = (await this.sql.query(`SELECT d.id AS id, d.summary AS summary, d.last_ingested_at AS last_ingested_at
          FROM documents d
         WHERE d.workspace_id = ? AND d.last_ingested_at IS NOT NULL AND d.last_ingested_at > ?
@@ -1053,8 +1061,8 @@ export class GraphRepo {
                       WHERE r.workspace_id = d.workspace_id AND r.document_id = d.id AND r.subgraph_id = ?)
             OR (? = 'default' AND NOT EXISTS (SELECT 1 FROM document_routing r2
                       WHERE r2.workspace_id = d.workspace_id AND r2.document_id = d.id))
-          )
-        ORDER BY d.last_ingested_at DESC`, [ws, since, subgraph_id, subgraph_id])) as any[];
+          )${vis.sql}
+        ORDER BY d.last_ingested_at DESC`, [ws, since, subgraph_id, subgraph_id, ...vis.params])) as any[];
     return openRows(rows, async (r) => { r.summary = await openText(this, ws, 'documents.summary', r.id, r.summary); });
   }
 
