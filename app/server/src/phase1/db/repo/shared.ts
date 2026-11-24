@@ -278,6 +278,47 @@ export function parsePendingRouteRow(r: RawPendingRouteRow): PendingRouteRow {
 }
 
 /**
+ * Who is looking at (or resolving) a held routing decision. `is_admin` is the
+ * owner tier: the workspace owner or a workspace_admin. Omitting the viewer
+ * entirely (local single-user mode, internal callers) is unfiltered.
+ */
+export interface PendingRouteViewer {
+  user_id: string;
+  is_admin: boolean;
+}
+
+/**
+ * The audience a held document will be captured with, as far as it is known
+ * before a folder is picked: the ingest's explicit choice, else its fallback.
+ * Unset at both = the column default ('team'), which is also how legacy
+ * pre-column rows (audience and ingested_by NULL) have always behaved.
+ */
+export function pendingRouteEffectiveAudience(row: PendingRouteRow): 'team' | 'private' | 'only_me' {
+  return row.audience ?? row.fallback_audience ?? 'team';
+}
+
+/**
+ * A held route is visible to its ingester and to admins/owner; anyone else
+ * sees it only when its effective audience is 'team'. A held document has
+ * not been captured yet, so its privacy choice must be honored here, or a
+ * 'private' ingest leaks its name, reason and proposal to every member.
+ */
+export function pendingRouteVisibleTo(row: PendingRouteRow, viewer?: PendingRouteViewer): boolean {
+  if (!viewer || viewer.is_admin) return true;
+  if (row.ingested_by && row.ingested_by === viewer.user_id) return true;
+  return pendingRouteEffectiveAudience(row) === 'team';
+}
+
+/**
+ * Only the ingester or an admin/owner may approve, choose or reject. Legacy
+ * rows with no recorded ingester are admin-only to resolve.
+ */
+export function pendingRouteResolvableBy(row: PendingRouteRow, viewer?: PendingRouteViewer): boolean {
+  if (!viewer || viewer.is_admin) return true;
+  return !!row.ingested_by && row.ingested_by === viewer.user_id;
+}
+
+/**
  * Repository — workspace-scoped DB access. Every query takes workspace_id
  * as a non-optional first argument. This is the integrity-gate enforcement
  * point for cross-tenant isolation.

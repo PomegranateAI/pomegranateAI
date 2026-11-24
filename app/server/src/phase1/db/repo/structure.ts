@@ -6,11 +6,13 @@
 import { nanoid } from 'nanoid';
 import { ContextProfile } from '../../../lib/schemas.js';
 import type { ContextProfile as ContextProfileT } from '../../../lib/schemas.js';
+import type { PendingRouteViewer } from './shared.js';
 import {
   PendingRouteRow,
   SubgraphRow,
   RawPendingRouteRow,
   parsePendingRouteRow,
+  pendingRouteVisibleTo,
   SUBGRAPH_SELECT,
   mapSubgraphRow,
   SUBGRAPH_SCOPED_TABLES,
@@ -332,15 +334,44 @@ export class StructureRepo {
     return { id };
   }
 
-  async getPendingRoute(this: Repo, workspace_id: string, id: string): Promise<PendingRouteRow | undefined> {
+  /**
+   * With `viewer`, a route the viewer may not see (someone else's private
+   * hold — see pendingRouteVisibleTo) reads as missing, so every caller 404s
+   * instead of leaking it. Without `viewer` (local mode, internal callers)
+   * the read is unfiltered.
+   */
+  async getPendingRoute(this: Repo,
+    workspace_id: string,
+    id: string,
+    opts?: { viewer?: PendingRouteViewer },
+  ): Promise<PendingRouteRow | undefined> {
     const row = (await this.sql.one<any>(`SELECT * FROM pending_routes WHERE workspace_id = ? AND id = ?`, [workspace_id, id])) as RawPendingRouteRow | undefined;
-    return row ? parsePendingRouteRow(row) : undefined;
+    if (!row) return undefined;
+    const parsed = parsePendingRouteRow(row);
+    return pendingRouteVisibleTo(parsed, opts?.viewer) ? parsed : undefined;
   }
 
-  async listPendingRoutes(this: Repo, workspace_id: string, opts?: { status?: string }): Promise<PendingRouteRow[]> {
+  async listPendingRoutes(this: Repo,
+    workspace_id: string,
+    opts?: { status?: string; viewer?: PendingRouteViewer },
+  ): Promise<PendingRouteRow[]> {
     const status = opts?.status ?? 'pending';
     const rows = (await this.sql.query<any>(`SELECT * FROM pending_routes WHERE workspace_id = ? AND status = ? ORDER BY created_at ASC`, [workspace_id, status])) as RawPendingRouteRow[];
-    return rows.map(parsePendingRouteRow);
+    return rows.map(parsePendingRouteRow).filter((r) => pendingRouteVisibleTo(r, opts?.viewer));
+  }
+
+  /**
+   * Build the viewer for pending-route visibility/resolution: admin when the
+   * membership role is workspace_admin or the user is the workspace owner
+   * (same owner-tier test as ruleWriteAllowed). `role` may be passed when the
+   * caller already has it (REST workspaceGate); otherwise it is looked up.
+   */
+  async pendingRouteViewer(this: Repo, workspace_id: string, user_id: string, role?: string): Promise<PendingRouteViewer> {
+    const r = role ?? (await this.getMembership(workspace_id, user_id))?.role;
+    if (r === 'workspace_admin') return { user_id, is_admin: true };
+    const owner_email = ((await this.getWorkspace(workspace_id))?.owner_email ?? '').toLowerCase();
+    const email = ((await this.getUserEmailRow(user_id))?.email ?? '').toLowerCase();
+    return { user_id, is_admin: !!owner_email && owner_email === email };
   }
 
   async resolvePendingRoute(this: Repo,

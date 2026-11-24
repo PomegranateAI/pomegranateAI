@@ -15,7 +15,8 @@
  */
 import { z } from 'zod';
 import type { MediaService } from '../data-agents/media-service.js';
-import { Repo } from '../db/repo.js';
+import { Repo, pendingRouteResolvableBy } from '../db/repo.js';
+import type { PendingRouteViewer } from '../db/repo.js';
 import type { SynthesisProvider } from '../../lib/synthesis.js';
 import { CachedSynth } from '../synth/cached.js';
 import { withLlmContext } from '../../lib/llm-context.js';
@@ -128,6 +129,8 @@ export interface McpDeps {
     ws: string,
     pending_route_id: string,
     decision: { action: 'approve' | 'choose' | 'reject'; chosen_target_ids?: string[]; resolved_by: string },
+    /** Who is resolving (visibility + ingester/admin gate). null = local, unchecked. */
+    actor: PendingRouteViewer | null,
   ) => Promise<
     | {
         ok: true;
@@ -139,8 +142,8 @@ export interface McpDeps {
       }
     | {
         ok: false;
-        error: 'not_found' | 'already_resolved' | 'invalid_targets';
-        status: 400 | 404 | 409;
+        error: 'not_found' | 'already_resolved' | 'invalid_targets' | 'not_your_route';
+        status: 400 | 403 | 404 | 409;
       }
   >;
   /**
@@ -1762,18 +1765,25 @@ export function createTools(deps: McpDeps): ToolDef[] {
       name: 'list_pending_routes',
       title: 'List routing decisions awaiting review',
       description:
-        'List documents whose routing is being held for review: either the router wants to create a new folder, or it picked an existing folder with nothing to go on. Each entry carries the question to put to the user and the folder NAMES involved. Use approve_route, choose_route, or reject_route to resolve one.',
+        'List documents whose routing is being held for review: either the router wants to create a new folder, or it picked an existing folder with nothing to go on. Each entry carries the question to put to the user and the folder NAMES involved. Use approve_route, choose_route, or reject_route to resolve one — only when its `can_resolve` is true (the document uploader or a directory owner/admin); otherwise tell the user it is waiting on the uploader.',
       inputShape: {
         status: z.enum(['pending', 'approved', 'rejected']).optional().describe("Defaults to 'pending'."),
       },
       annotations: { readOnlyHint: true, openWorldHint: false },
       async handler(args: { status?: 'pending' | 'approved' | 'rejected' }, ctx) {
-        const rows = await deps.repo.listPendingRoutes(ctx.ws, { status: args.status ?? 'pending' });
+        // Same viewer filter as the REST list: someone else's private hold is
+        // invisible; can_resolve says whether this caller may act on a row.
+        const viewer = await deps.repo.pendingRouteViewer(ctx.ws, ctx.user_id);
+        const rows = await deps.repo.listPendingRoutes(ctx.ws, { status: args.status ?? 'pending', viewer });
         // Raw rows carry folder IDs only, which a user cannot be asked about.
         // Keep the row shape (callers read `proposed_new_folder`, `id`, …) and
         // add the resolved names + the question, same as ingest_document's
         // held response.
-        const pending_routes = await Promise.all(rows.map(async (row) => ({ ...row, ...(await describePendingRoute(ctx.ws, row.id) ?? {}) })));
+        const pending_routes = await Promise.all(rows.map(async (row) => ({
+          ...row,
+          ...(await describePendingRoute(ctx.ws, row.id) ?? {}),
+          can_resolve: pendingRouteResolvableBy(row, viewer),
+        })));
         return { pending_routes };
       },
     },
@@ -1789,7 +1799,8 @@ export function createTools(deps: McpDeps): ToolDef[] {
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
       async handler(args: { id: string }, ctx) {
         if (!deps.resolvePendingRoute) throw new ToolError('not_supported', 501);
-        const result = await deps.resolvePendingRoute(ctx.ws, args.id, { action: 'approve', resolved_by: ctx.user_id });
+        const actor = await deps.repo.pendingRouteViewer(ctx.ws, ctx.user_id);
+        const result = await deps.resolvePendingRoute(ctx.ws, args.id, { action: 'approve', resolved_by: ctx.user_id }, actor);
         if (!result.ok) throw new ToolError(result.error, result.status);
         log.info('routing.approved', { workspace: ctx.ws, user: ctx.user_id, via: 'mcp', pending_route_id: args.id });
         return result;
@@ -1809,11 +1820,12 @@ export function createTools(deps: McpDeps): ToolDef[] {
       async handler(args: { id: string; target_ids: string[] }, ctx) {
         if (!deps.resolvePendingRoute) throw new ToolError('not_supported', 501);
         const resolvedTargets = await Promise.all(args.target_ids.map(async (t) => await resolveSubgraphArg(ctx.ws, t)));
+        const actor = await deps.repo.pendingRouteViewer(ctx.ws, ctx.user_id);
         const result = await deps.resolvePendingRoute(ctx.ws, args.id, {
           action: 'choose',
           chosen_target_ids: resolvedTargets,
           resolved_by: ctx.user_id,
-        });
+        }, actor);
         if (!result.ok) throw new ToolError(result.error, result.status);
         log.info('routing.chosen', {
           workspace: ctx.ws,
@@ -1835,7 +1847,8 @@ export function createTools(deps: McpDeps): ToolDef[] {
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
       async handler(args: { id: string }, ctx) {
         if (!deps.resolvePendingRoute) throw new ToolError('not_supported', 501);
-        const result = await deps.resolvePendingRoute(ctx.ws, args.id, { action: 'reject', resolved_by: ctx.user_id });
+        const actor = await deps.repo.pendingRouteViewer(ctx.ws, ctx.user_id);
+        const result = await deps.resolvePendingRoute(ctx.ws, args.id, { action: 'reject', resolved_by: ctx.user_id }, actor);
         if (!result.ok) throw new ToolError(result.error, result.status);
         log.info('routing.rejected', { workspace: ctx.ws, user: ctx.user_id, via: 'mcp', pending_route_id: args.id });
         return result;

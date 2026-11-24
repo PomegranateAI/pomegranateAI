@@ -373,7 +373,9 @@ export function App() {
       api
         .listPendingRoutes(wsId)
         .then((r) => {
-          if (!stop) setPending(r.pending_routes.length);
+          // Badge only what this user can act on; rows waiting on someone
+          // else's decision are shown read-only and don't need attention.
+          if (!stop) setPending(r.pending_routes.filter((p) => p.can_resolve !== false).length);
         })
         .catch(() => {});
     load();

@@ -8,7 +8,8 @@ import { viewerMayRequest } from '../../governance.js';
 import { MediaService, MediaError } from '../../data-agents/media-service.js';
 import { mediaProvenance } from '../../data-agents/context.js';
 import type { MiddlewareHandler, Context } from 'hono';
-import type { CustomerAuditEvent } from '../../db/repo.js';
+import type { CustomerAuditEvent, PendingRouteViewer } from '../../db/repo.js';
+import { pendingRouteResolvableBy } from '../../db/repo.js';
 import { MFA_ENROLLMENT_PATHS, PASSWORD_CHANGE_PATHS, hasTwoStep } from './mfa.js';
 import { promises as fs, readdirSync } from 'node:fs';
 import * as path from 'node:path';
@@ -2419,9 +2420,18 @@ async function resolvePendingRoute(
   ws: string,
   pending_route_id: string,
   decision: { action: 'approve' | 'choose' | 'reject'; chosen_target_ids?: string[]; resolved_by: string },
+  /**
+   * Who is resolving. Required (not optional) so no caller can forget it:
+   * pass null only for local single-user mode / internal callers, where the
+   * check is skipped. A route the actor cannot see is not_found (404, so a
+   * private hold isn't confirmed to exist); one they can see but didn't
+   * ingest and aren't admin for is not_your_route (403).
+   */
+  actor: PendingRouteViewer | null,
 ): Promise<ResolvePendingRouteResult> {
-  const pending = await repo.getPendingRoute(ws, pending_route_id);
+  const pending = await repo.getPendingRoute(ws, pending_route_id, { viewer: actor ?? undefined });
   if (!pending) return { ok: false, error: 'not_found', status: 404 };
+  if (!pendingRouteResolvableBy(pending, actor ?? undefined)) return { ok: false, error: 'not_your_route', status: 403 };
   if (pending.status !== 'pending') return { ok: false, error: 'already_resolved', status: 409 };
 
   if (decision.action === 'reject') {

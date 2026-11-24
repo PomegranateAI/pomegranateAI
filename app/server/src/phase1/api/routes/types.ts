@@ -97,4 +97,4 @@ export type ResolvePendingRouteResult =
       candidates?: number;
       routed?: RoutedSubgraphResult[];
     }
-  | { ok: false; error: 'not_found' | 'already_resolved' | 'invalid_targets'; status: 400 | 404 | 409 };
+  | { ok: false; error: 'not_found' | 'already_resolved' | 'invalid_targets' | 'not_your_route'; status: 400 | 403 | 404 | 409 };

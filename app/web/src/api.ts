@@ -305,6 +305,12 @@ export type PendingRoute = {
   low_confidence_targets: string[];
   status: 'pending' | 'approved' | 'rejected';
   created_at: string;
+  ingested_by?: string | null;
+  /** Email of whoever ingested the held document (null for legacy rows). */
+  ingested_by_email?: string | null;
+  /** Server-computed: may the current user approve/choose/reject this row?
+   *  Only the ingester or a directory owner/admin can. */
+  can_resolve?: boolean;
 };
 
 let _session: string | null = localStorage.getItem('pmg_session');

@@ -156,6 +156,11 @@ function PendingRouteRow({
       <p className="mt-1 text-sm text-muted-foreground">
         {item.proposed_new_folder?.description || item.reason}
       </p>
+      {item.can_resolve === false ? (
+        <p className="mt-2 text-sm italic text-muted-foreground">
+          Waiting for {item.ingested_by_email || 'the uploader'} to decide.
+        </p>
+      ) : (
       <div className="mt-2 flex flex-wrap items-center gap-2">
         <Button size="sm" onClick={approve} disabled={busy} className="pome-btn">
           {item.proposed_new_folder ? 'Create & file' : 'Approve'}
@@ -187,6 +192,7 @@ function PendingRouteRow({
           Leave unfiled
         </Button>
       </div>
+      )}
     </li>
   );
 }
