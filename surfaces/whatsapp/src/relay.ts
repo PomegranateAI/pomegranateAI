@@ -146,6 +146,7 @@ export function createRelayHandler(deps: RelayDeps): (msg: IncomingMessage) => P
         thread_key: msg.phone,
         text: messageText,
         message_id: msg.id,
+        ...(msg.isGroup ? { is_group: true } : {}),
         ...(assetIds.length ? { asset_ids: assetIds, files } : {}),
       });
 

@@ -15,6 +15,9 @@ beforeAll(async () => {
   const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'pom-idd-'));
   process.env.POMEGRANATE_DB_PATH = path.join(tmpDir, 'p.db');
   process.env.POMEGRANATE_FILES_DIR = path.join(tmpDir, 'files');
+  // These tests link identities directly; the link-code flow is covered in
+  // identity-link.test.ts.
+  process.env.POMEGRANATE_ALLOW_UNVERIFIED_IDENTITY_LINK = '1';
 });
 
 async function loadApp() {

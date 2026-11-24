@@ -125,6 +125,7 @@ describe('createRelayHandler', () => {
       thread_key: '14155550100',
       text: 'what is the roadmap status?',
       message_id: 'm1',
+      is_group: true,
     });
     // Reply goes back into the GROUP (replyTo), not a DM to the sender.
     expect(d.sendText).toHaveBeenCalledWith('120363412508870098@g.us', 'done');
@@ -194,6 +195,15 @@ describe('createRelayHandler', () => {
     const handle = createRelayHandler(d);
     await handle(msg());
     expect(d.sendText).toHaveBeenCalledWith('+14155550100', "I don't know who you are yet.");
+  });
+
+  it('forwards a link code from a 1:1 chat unchanged, without is_group', async () => {
+    const d = deps(async () => ({ reply: 'Linked this WhatsApp number to a@b.example. You can now message me.' }));
+    await createRelayHandler(d)(msg({ text: 'PMG-ABC234' }));
+    expect(d.sendMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ phone: '14155550100', text: 'PMG-ABC234' }),
+    );
+    expect(d.sendMessage.mock.calls[0]![0]).not.toHaveProperty('is_group');
   });
 
   it('falls back to the error userMessage when the surface client throws a SurfaceError', async () => {

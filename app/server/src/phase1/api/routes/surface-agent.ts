@@ -18,6 +18,7 @@ import {
   SURFACE_AGENT_PROMPT_VERSION,
 } from '../../agent/surface-agent.js';
 import { TokenBucketLimiter } from '../rate-limit.js';
+import { createLinkRedeemer } from '../identity-link.js';
 import type { Hono } from 'hono';
 import type { AppVars } from '../routes.js';
 import type { RouteCore } from './core.js';
@@ -35,6 +36,8 @@ const {
 } = core;
 // Throttle per (team, slack user): each agent turn costs an LLM call.
 const surfaceLimiter = new TokenBucketLimiter({ capacity: 10, refillIntervalMs: 5_000 });
+// Redeems identity link codes sent from an unlinked Slack user / phone.
+const linkRedeemer = createLinkRedeemer(repo);
 
 // WhatsApp has no Slack-style "team" concept — one bot phone number serves
 // the whole org (identities aren't team-scoped either, see
@@ -46,6 +49,8 @@ const SlackMsgBody = z.object({
   surface: z.literal('slack'),
   team_id: z.string().min(1),
   slack_user_id: z.string().min(1),
+  /** Sender's Slack handle, if the relay knows it (stored on link). */
+  handle: z.string().max(80).optional(),
   channel_id: z.string().optional(),
   /** Stable thread identity: `channel:thread_ts` (or channel for DMs). */
   thread_key: z.string().min(1),
@@ -60,12 +65,14 @@ const WhatsappMsgBody = z.object({
   thread_key: z.string().min(1),
   text: z.string().min(1),
   message_id: z.string().max(256).optional(),
+  /** True when the message came from a group chat, not a 1:1 chat. */
+  is_group: z.boolean().optional(),
   asset_ids: z.array(z.string()).max(5).optional(),
   files: z.array(z.object({ name: z.string(), text: z.string() })).max(5).optional(),
 });
 const SurfaceMsgBody = z.discriminatedUnion('surface', [SlackMsgBody, WhatsappMsgBody]);
 const UNMAPPED_REPLY_WHATSAPP =
-  "I don't know who you are on Pomegranate yet. Open the web app → Setup → Your profile and link this WhatsApp number, then try again.";
+  "I don't know who you are on Pomegranate yet. To link this WhatsApp number, open Pomegranate → Setup → Your profile → Connect WhatsApp, get a link code, and send it here.";
 const NO_DEFAULT_REPLY_WHATSAPP =
   'You belong to several directories and none is set as your WhatsApp default. Open Pomegranate → Setup in the directory you want and press "Make default" for WhatsApp.';
 
@@ -109,6 +116,33 @@ app.post('/agent/surface/media', async (c) => {
   }
 });
 
+/**
+ * A message that is just an identity link code ("PMG-XXXXXX", optionally
+ * "link PMG-XXXXXX") is handled here, deterministically, never by the agent:
+ * the sender identity is the one the platform delivered to the relay, so a
+ * redeemed code proves the person controls it. Null for any other message.
+ */
+async function redeemLinkCode(
+  body: z.infer<typeof SurfaceMsgBody>,
+  mappedUserId: string | null,
+  source_ip: string | undefined,
+): Promise<{ reply: string; linked?: boolean; unmapped?: boolean } | null> {
+  const sender =
+    body.surface === 'slack'
+      ? {
+          kind: 'slack' as const,
+          team_id: body.team_id,
+          slack_user_id: body.slack_user_id,
+          handle: body.handle,
+          // Slack DM channel ids start with D; anything else is a channel.
+          direct: !body.channel_id || body.channel_id.startsWith('D'),
+        }
+      : { kind: 'whatsapp' as const, phone: body.phone, direct: !body.is_group };
+  const r = await linkRedeemer.maybeRedeem(sender, body.text, mappedUserId, { source_ip });
+  if (!r) return null;
+  return mappedUserId || r.linked ? r : { ...r, unmapped: true };
+}
+
 app.post('/agent/surface/messages', async (c) => {
   if (!process.env.SURFACE_AGENT_SECRET) return c.json({ error: 'surface agent not configured' }, 501);
   if (!surfaceSecretOk(c.req.header('x-surface-secret'))) return c.json({ error: 'unauthorized' }, 401);
@@ -122,10 +156,15 @@ app.post('/agent/surface/messages', async (c) => {
     return c.json({ error: 'rate_limited' }, 429);
   }
 
-  const user =
+  let user =
     surface === 'slack'
-      ? await repo.findUserBySlackIdentity(team_id, parsed.data.slack_user_id, { activeOnly: true })
-      : await repo.findUserByWhatsappIdentity(parsed.data.phone, { activeOnly: true });
+      ? await repo.findUserBySlackIdentity(team_id, parsed.data.slack_user_id)
+      : await repo.findUserByWhatsappIdentity(parsed.data.phone);
+  // Link-code redemption sees the raw mapping (a disabled account's identity is
+  // still "taken"); routing below only acts for active accounts.
+  const linkReply = await redeemLinkCode(parsed.data, user?.id ?? null, clientIp(c));
+  if (linkReply) return c.json(linkReply);
+  if (user && (await repo.isUserDisabled(user.id))) user = undefined;
   if (!user) {
     return c.json({ reply: surface === 'slack' ? UNMAPPED_REPLY : UNMAPPED_REPLY_WHATSAPP, unmapped: true });
   }

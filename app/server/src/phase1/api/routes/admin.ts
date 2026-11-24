@@ -96,6 +96,59 @@ app.put('/admin/users/:id/password', authn, async (c) => {
   return c.json({ ok: true, temporary_password: password, emailed });
 });
 
+/**
+ * Set a user's Slack / WhatsApp identity directly (operator onboarding). The
+ * self-service path requires a link code sent from the identity itself; a
+ * system admin is trusted to have checked ownership out of band.
+ */
+app.put('/admin/users/:id/identities/:kind', authn, async (c) => {
+  if (!await systemAdmin(c)) return c.json({ error: 'admin only' }, 403);
+  const kind = c.req.param('kind');
+  if (kind !== 'slack' && kind !== 'whatsapp') return c.json({ error: 'invalid kind' }, 400);
+  const user = await repo.getUserById(c.req.param('id'));
+  if (!user) return c.json({ error: 'user not found' }, 404);
+  const body = await c.req.json().catch(() => ({}));
+  const parsed =
+    kind === 'slack'
+      ? z.object({
+          team_id: z.string().trim().min(1).optional(),
+          external_id: z.string().trim().min(1),
+          handle: z.string().trim().min(1).transform((s) => s.replace(/^@/, '')).optional(),
+        }).safeParse(body)
+      : z.object({ phone: z.string().trim().min(3) }).transform((d) => ({ external_id: d.phone, team_id: undefined, handle: undefined })).safeParse(body);
+  if (!parsed.success) return c.json({ error: 'invalid' }, 400);
+  let identity;
+  try {
+    identity = await repo.upsertUserIdentity({
+      user_id: user.id,
+      kind,
+      team_id: parsed.data.team_id ?? null,
+      external_id: parsed.data.external_id,
+      handle: parsed.data.handle ?? null,
+    });
+  } catch (err) {
+    if ((err as Error).message === 'identity_claimed_by_other_user') {
+      return c.json({ error: 'identity already linked to another user' }, 409);
+    }
+    if ((err as Error).message === 'invalid_external_id') return c.json({ error: 'invalid identity' }, 400);
+    throw err;
+  }
+  for (const m of await repo.listMembershipsWithWorkspace(user.id)) {
+    await repo.logCustomerAudit(m.id, {
+      event: 'identity_linked',
+      actor_user_id: c.get('user_id'),
+      actor_email: await userEmail(c.get('user_id')),
+      source_ip: clientIp(c),
+      user_agent: c.req.header('user-agent') ?? undefined,
+      resource_type: 'user_identity',
+      resource_id: identity.id,
+      payload: { kind, external_id: identity.external_id, handle: identity.handle, via: 'admin', subject_user_id: user.id },
+    });
+  }
+  log.info('admin.identity_set', { actor: c.get('user_id'), user: user.id, kind });
+  return c.json({ identity });
+});
+
 app.get('/admin/users/:id/deletion', authn, async (c) => {
   if (!await systemAdmin(c)) return c.json({ error: 'admin only' }, 403);
   const user = await repo.getUserById(c.req.param('id'));

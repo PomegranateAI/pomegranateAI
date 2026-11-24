@@ -2789,7 +2789,7 @@ async function surfaceFolderFor(user_id: string, surface: 'slack' | 'mcp' | 'wha
 }
 
 const UNMAPPED_REPLY =
-  "I don't know who you are on Pomegranate yet. Open the web app → Setup → Your profile and link your Slack handle, then try again.";
+  "I don't know who you are on Pomegranate yet. To link this Slack account, open Pomegranate → Setup → Your profile → Connect Slack, get a link code, and send it to me here in a direct message.";
 const NO_DEFAULT_REPLY =
   'You belong to several directories and none is set as your Slack default. Open Pomegranate → Setup in the directory you want and press "Make default" for Slack.';
 

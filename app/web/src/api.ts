@@ -803,18 +803,15 @@ export const api = {
       body: { display_name: displayName },
       noSubgraph: true,
     }),
-  putSlackIdentity: (identity: { team_id?: string; external_id: string; handle?: string }) =>
-    call<{ identity: UserIdentity }>(`/me/identities/slack`, {
-      method: 'PUT',
-      body: identity,
+  // Identity linking: mint a single-use code the person sends to the bot from
+  // the Slack account / phone being linked (proof of ownership).
+  createIdentityLinkCode: (kind: 'slack' | 'whatsapp') =>
+    call<{ code: string; expires_at: string; instructions: string }>(`/me/identities/${kind}/link-code`, {
+      method: 'POST',
       noSubgraph: true,
     }),
-  putWhatsappIdentity: (phone: string) =>
-    call<{ identity: UserIdentity }>(`/me/identities/whatsapp`, {
-      method: 'PUT',
-      body: { phone },
-      noSubgraph: true,
-    }),
+  unlinkIdentity: (kind: 'slack' | 'whatsapp') =>
+    call<{ ok: boolean; removed: number }>(`/me/identities/${kind}`, { method: 'DELETE', noSubgraph: true }),
   putDefault: (surface: DefaultSurface, workspaceId: string, subgraphId?: string) =>
     call<{ default: UserDefault }>(`/me/defaults/${surface}`, {
       method: 'PUT',

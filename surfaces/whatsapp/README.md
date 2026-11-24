@@ -24,8 +24,11 @@ Exactly the Slack pattern (`user_identities`, kind `'whatsapp'` instead of
 3. The **server** (not this surface) looks up `user_identities` for a row
    with `kind='whatsapp'` and that phone number. If nothing matches, the
    agent replies asking the person to open the web app → **Setup → Your
-   profile** and link their WhatsApp number (`PUT /me/identities/whatsapp`,
-   wired into the `ProfileCard`'s "WhatsApp number" field).
+   profile → Connect WhatsApp**, get a link code
+   (`POST /me/identities/whatsapp/link-code`), and send it to the bot. The
+   server redeems a message that is just the code against the sender's real
+   phone number, which proves they own it. Codes sent from a group are
+   cancelled, not redeemed (this surface passes `is_group`).
 4. Once linked, the reply resolves to that user's default folder for the
    `whatsapp` surface (**Setup → Default folder**), falling back to their
    last-active folder, falling back to their only folder if they have

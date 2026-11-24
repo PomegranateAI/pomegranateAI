@@ -506,6 +506,7 @@ export const CUSTOMER_AUDIT_EVENTS = [
   'workspace_deleted',
   'subgraph_deleted',
   'identity_linked',
+  'identity_unlinked',
   'default_folder_set',
   'surface_agent_used',
   'app_connected',

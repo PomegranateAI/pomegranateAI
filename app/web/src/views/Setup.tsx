@@ -1,6 +1,6 @@
 import { MediaReaders } from '../components/MediaReaders';
 import { MfaCard } from '../components/MfaSetup.js';
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { Check, Copy, Layers, Plus, Archive, Users, ArrowRight, ArrowLeft, Link2, Trash2, Mail, Settings2 } from 'lucide-react';
 import { toast } from 'sonner';
 import {
@@ -8,6 +8,7 @@ import {
   setSession,
   type Subgraph,
   type Me,
+  type UserIdentity,
   type UserDefault,
   type DefaultSurface,
   type ContextProfile,
@@ -936,30 +937,28 @@ function FolderIdCard({ wsId }: { wsId: string }) {
 }
 
 // Profile — how teammates and surfaces refer to you: a display name ("Alice
-// Martin") and a linked Slack identity. Both feed the server-side resolver that
-// lets "review this against Alice's folder" work from any surface.
+// Martin") and linked Slack / WhatsApp identities. Both feed the server-side
+// resolver that lets "review this against Alice's folder" work from any
+// surface. Identities are linked by a code the person sends to the bot FROM
+// that Slack account or phone (proof they control it), never by typing an id.
 function ProfileCard() {
   const [me, setMe] = useState<Me | null>(null);
   const [name, setName] = useState('');
-  const [handle, setHandle] = useState('');
-  const [slackId, setSlackId] = useState('');
-  const [whatsappPhone, setWhatsappPhone] = useState('');
   const [busy, setBusy] = useState(false);
 
-  useEffect(() => {
-    api
-      .getMe()
-      .then((m) => {
-        setMe(m);
-        setName(m.display_name ?? '');
-        const slack = m.identities.find((i) => i.kind === 'slack');
-        setHandle(slack?.handle ?? '');
-        setSlackId(slack?.external_id ?? '');
-        const whatsapp = m.identities.find((i) => i.kind === 'whatsapp');
-        setWhatsappPhone(whatsapp?.external_id ?? '');
-      })
-      .catch(() => {});
+  const refresh = useCallback(async (): Promise<Me | null> => {
+    try {
+      const m = await api.getMe();
+      setMe(m);
+      return m;
+    } catch {
+      return null;
+    }
   }, []);
+
+  useEffect(() => {
+    refresh().then((m) => setName(m?.display_name ?? ''));
+  }, [refresh]);
 
   async function save() {
     setBusy(true);
@@ -967,29 +966,7 @@ function ProfileCard() {
       if ((me?.display_name ?? '') !== name.trim()) {
         await api.patchMe(name.trim() || null);
       }
-      const slack = me?.identities.find((i) => i.kind === 'slack');
-      const wantsSlack = handle.trim() || slackId.trim();
-      const slackChanged =
-        wantsSlack &&
-        (slack?.handle !== handle.trim().replace(/^@/, '') || slack?.external_id !== slackId.trim());
-      if (wantsSlack && slackChanged) {
-        if (!slackId.trim()) {
-          toast.error('Slack member ID is required to link a Slack identity', {
-            description: 'Slack → your profile → ⋯ → Copy member ID (starts with U).',
-          });
-          return;
-        }
-        await api.putSlackIdentity({
-          external_id: slackId.trim(),
-          ...(handle.trim() ? { handle: handle.trim() } : {}),
-        });
-      }
-      const whatsapp = me?.identities.find((i) => i.kind === 'whatsapp');
-      const whatsappChanged = whatsappPhone.trim() && whatsapp?.external_id !== whatsappPhone.trim();
-      if (whatsappChanged) {
-        await api.putWhatsappIdentity(whatsappPhone.trim());
-      }
-      setMe(await api.getMe());
+      await refresh();
       toast.success('Profile saved');
     } catch (err) {
       toast.error('Could not save profile', {
@@ -1010,9 +987,9 @@ function ProfileCard() {
           Code by name, email, or @handle.
         </CardDescription>
       </CardHeader>
-      <CardContent className="space-y-3">
-        <div className="grid gap-3 sm:grid-cols-3">
-          <div>
+      <CardContent className="space-y-4">
+        <div className="flex flex-wrap items-end gap-3">
+          <div className="min-w-[14rem] flex-1 sm:max-w-sm">
             <label className="mb-1 block text-xs font-medium text-muted-foreground">
               Display name
             </label>
@@ -1022,44 +999,180 @@ function ProfileCard() {
               placeholder="Alice Martin"
             />
           </div>
-          <div>
-            <label className="mb-1 block text-xs font-medium text-muted-foreground">
-              Slack handle
-            </label>
-            <Input
-              value={handle}
-              onChange={(e) => setHandle(e.target.value)}
-              placeholder="@alice.martin"
-            />
-          </div>
-          <div>
-            <label className="mb-1 block text-xs font-medium text-muted-foreground">
-              Slack member ID
-            </label>
-            <Input
-              value={slackId}
-              onChange={(e) => setSlackId(e.target.value)}
-              placeholder="U0123456789"
-              className="font-mono"
-            />
-          </div>
-          <div>
-            <label className="mb-1 block text-xs font-medium text-muted-foreground">
-              WhatsApp number
-            </label>
-            <Input
-              value={whatsappPhone}
-              onChange={(e) => setWhatsappPhone(e.target.value)}
-              placeholder="+1 415 555 0100"
-              className="font-mono"
-            />
-          </div>
+          <button className="pome-btn" disabled={busy} onClick={save}>
+            {busy ? 'Saving…' : 'Save profile'}
+          </button>
         </div>
-        <button className="pome-btn" disabled={busy} onClick={save}>
-          {busy ? 'Saving…' : 'Save profile'}
-        </button>
+        <div className="grid gap-3 sm:grid-cols-2">
+          <IdentityLinkPanel kind="slack" me={me} onChanged={refresh} />
+          <IdentityLinkPanel kind="whatsapp" me={me} onChanged={refresh} />
+        </div>
       </CardContent>
     </Card>
+  );
+}
+
+const IDENTITY_COPY = {
+  slack: {
+    name: 'Slack',
+    title: 'Connect Slack',
+    instruction: 'DM this code to the Pomegranate bot in Slack',
+    from: 'from the Slack account you want to link.',
+  },
+  whatsapp: {
+    name: 'WhatsApp',
+    title: 'Connect WhatsApp',
+    instruction: 'Send this code to the Pomegranate WhatsApp number',
+    from: 'from the phone you want to link.',
+  },
+} as const;
+
+function identityLabel(i: UserIdentity): string {
+  if (i.kind === 'whatsapp') return `+${i.external_id}`;
+  return i.handle ? `@${i.handle} (${i.external_id})` : i.external_id;
+}
+
+const LINK_POLL_MS = 3000;
+
+function formatCountdown(ms: number): string {
+  const s = Math.max(0, Math.ceil(ms / 1000));
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+}
+
+// One surface's identity: shows what's linked (with Unlink), or mints a link
+// code, shows it large with a copy button and an expiry countdown, and polls
+// /me every 3s until the identity appears or the code expires.
+function IdentityLinkPanel({
+  kind,
+  me,
+  onChanged,
+}: {
+  kind: 'slack' | 'whatsapp';
+  me: Me | null;
+  onChanged: () => Promise<Me | null>;
+}) {
+  const copy = IDENTITY_COPY[kind];
+  const linked = me?.identities.filter((i) => i.kind === kind) ?? [];
+  const [pending, setPending] = useState<{ code: string; expiresAt: number; knownIds: string[] } | null>(null);
+  const [now, setNow] = useState(Date.now());
+  const [justLinked, setJustLinked] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const [busy, setBusy] = useState(false);
+
+  // While a code is live: tick the countdown and poll for the new identity.
+  useEffect(() => {
+    if (!pending) return;
+    let stopped = false;
+    const tick = setInterval(() => setNow(Date.now()), 1000);
+    const poll = setInterval(async () => {
+      if (Date.now() >= pending.expiresAt) {
+        clearInterval(poll);
+        return;
+      }
+      const m = await onChanged();
+      if (stopped || !m) return;
+      if (m.identities.some((i) => i.kind === kind && !pending.knownIds.includes(i.id))) {
+        setPending(null);
+        setJustLinked(true);
+        toast.success(`${copy.name} linked`);
+      }
+    }, LINK_POLL_MS);
+    return () => {
+      stopped = true;
+      clearInterval(tick);
+      clearInterval(poll);
+    };
+  }, [pending, kind, onChanged, copy.name]);
+
+  async function getCode() {
+    setBusy(true);
+    setJustLinked(false);
+    try {
+      const r = await api.createIdentityLinkCode(kind);
+      setPending({ code: r.code, expiresAt: Date.parse(r.expires_at), knownIds: linked.map((i) => i.id) });
+      setNow(Date.now());
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : '';
+      toast.error('Could not get a link code', {
+        description: msg.startsWith('429') ? 'Too many codes requested. Try again later.' : msg || undefined,
+      });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function copyCode() {
+    if (!pending) return;
+    await navigator.clipboard.writeText(pending.code);
+    setCopied(true);
+    toast.success('Copied to clipboard');
+    setTimeout(() => setCopied(false), 1500);
+  }
+
+  async function unlink() {
+    setBusy(true);
+    try {
+      await api.unlinkIdentity(kind);
+      setJustLinked(false);
+      await onChanged();
+      toast.success(`${copy.name} unlinked`);
+    } catch (err) {
+      toast.error('Could not unlink', { description: err instanceof Error ? err.message : undefined });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const remaining = pending ? pending.expiresAt - now : 0;
+  const live = !!pending && remaining > 0;
+
+  return (
+    <div className="space-y-2 rounded-md border bg-card p-3">
+      <div className="text-xs font-medium text-muted-foreground">{copy.title}</div>
+      {linked.length > 0 && (
+        <div className="flex flex-wrap items-center gap-2 text-sm">
+          <Check className="size-4 text-flag-green" />
+          <span>{justLinked ? 'Linked ✓' : 'Linked'}</span>
+          <code className="font-mono text-xs text-muted-foreground">{linked.map(identityLabel).join(', ')}</code>
+          <button
+            type="button"
+            className="ml-auto text-xs text-muted-foreground hover:text-destructive"
+            disabled={busy}
+            onClick={unlink}
+          >
+            Unlink
+          </button>
+        </div>
+      )}
+      {live ? (
+        <div className="space-y-2">
+          <p className="text-sm">
+            {copy.instruction} {copy.from}
+          </p>
+          <div className="flex items-center gap-2">
+            <code className="select-all font-mono text-2xl font-semibold tracking-widest">{pending.code}</code>
+            <button
+              onClick={copyCode}
+              aria-label="Copy link code"
+              className="inline-flex size-8 shrink-0 items-center justify-center rounded-md border bg-card text-muted-foreground transition-colors hover:bg-muted"
+            >
+              {copied ? <Check className="size-4 text-flag-green" /> : <Copy className="size-4" />}
+            </button>
+          </div>
+          <p className="text-xs text-muted-foreground">
+            Expires in {formatCountdown(remaining)}. Waiting for your message… Don't share this code.
+          </p>
+        </div>
+      ) : (
+        <div className="space-y-2">
+          {pending && <p className="text-xs text-muted-foreground">That code expired. Get a new one.</p>}
+          <button className="pome-btn inline-flex items-center gap-1.5" disabled={busy} onClick={getCode}>
+            <Link2 className="size-4" />
+            {linked.length > 0 ? 'Link another' : 'Get a link code'}
+          </button>
+        </div>
+      )}
+    </div>
   );
 }
 

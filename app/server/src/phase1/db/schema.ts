@@ -70,6 +70,21 @@ export function migrate(db: Database.Database): void {
     );
     CREATE INDEX IF NOT EXISTS idx_user_identities_user ON user_identities(user_id);
 
+    -- Link codes for self-service Slack / WhatsApp identity linking (POST
+    -- /me/identities/:kind/link-code). The person sends the code to the bot
+    -- FROM the identity being linked; the surface relay redeems it with the
+    -- sender's real id, so a link proves control of the identity. User-level
+    -- like user_identities (no workspace). Hash only, single use, short-lived;
+    -- one live code per (user, kind) — minting a new one replaces it.
+    CREATE TABLE IF NOT EXISTS identity_link_codes (
+      token_hash TEXT PRIMARY KEY,
+      user_id    TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      kind       TEXT NOT NULL CHECK (kind IN ('slack','whatsapp')),
+      expires_at TEXT NOT NULL,
+      created_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_identity_link_codes_user ON identity_link_codes(user_id, kind);
+
     -- Per-user default folder (workspace), optionally per surface. The 'all'
     -- row is the fallback when no surface-specific row exists. A default is a
     -- POINTER, not a grant: readers still need membership in the workspace.
