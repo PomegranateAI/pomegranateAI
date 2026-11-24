@@ -19,6 +19,9 @@ import { MediaRepo } from './repo/media.js';
 export {
   normalizePhoneDigits,
   CUSTOMER_AUDIT_EVENTS,
+  pendingRouteVisibleTo,
+  pendingRouteResolvableBy,
+  pendingRouteEffectiveAudience,
 } from './repo/shared.js';
 export type {
   UpdateMedium,
@@ -31,6 +34,7 @@ export type {
   UpdateDelivery,
   RecipientList,
   PendingRouteRow,
+  PendingRouteViewer,
   Workspace,
   SubgraphRow,
   Rule,

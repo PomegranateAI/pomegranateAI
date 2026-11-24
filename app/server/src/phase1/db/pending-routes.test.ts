@@ -8,7 +8,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import Database from 'better-sqlite3';
 import { migrate } from './schema.js';
-import { Repo } from './repo.js';
+import { Repo, pendingRouteResolvableBy } from './repo.js';
 
 let db: Database.Database;
 let repo: Repo;
@@ -77,5 +77,55 @@ describe('pending_routes', () => {
     expect(await repo.getPendingRoute(ws, 'pr_nope')).toBeUndefined();
     const otherWs = (await repo.createWorkspace({ name: 'Other', owner_email: 'o@t.com' })).id;
     expect(await repo.getPendingRoute(otherWs, id)).toBeUndefined();
+  });
+
+  it('viewer filter: private holds are ingester/admin-only, team and legacy holds are visible to all; only ingester/admin resolve', async () => {
+    const base = { reason: 'r', proposed_targets: [], proposed_new_folder: null, low_confidence_targets: [] };
+    const priv = (await repo.createPendingRoute(ws, { ...base, document_id: 'd1', audience: 'private', ingested_by: 'u_a' })).id;
+    const onlyMe = (await repo.createPendingRoute(ws, { ...base, document_id: 'd2', fallback_audience: 'only_me', ingested_by: 'u_a' })).id;
+    const team = (await repo.createPendingRoute(ws, { ...base, document_id: 'd3', audience: 'team', ingested_by: 'u_a' })).id;
+    // An explicit team audience beats a private fallback.
+    const teamOverFallback = (await repo.createPendingRoute(ws, { ...base, document_id: 'd4', audience: 'team', fallback_audience: 'only_me', ingested_by: 'u_a' })).id;
+    const legacy = (await repo.createPendingRoute(ws, { ...base, document_id: 'd5' })).id;
+    const legacyPrivate = (await repo.createPendingRoute(ws, { ...base, document_id: 'd6', audience: 'private' })).id;
+
+    const a = { user_id: 'u_a', is_admin: false };
+    const b = { user_id: 'u_b', is_admin: false };
+    const admin = { user_id: 'u_admin', is_admin: true };
+    const ids = async (viewer?: typeof a) => (await repo.listPendingRoutes(ws, { viewer })).map((r) => r.id).sort();
+
+    const all = [priv, onlyMe, team, teamOverFallback, legacy, legacyPrivate].sort();
+    expect(await ids()).toEqual(all);
+    expect(await ids(admin)).toEqual(all);
+    expect(await ids(a)).toEqual([priv, onlyMe, team, teamOverFallback, legacy].sort());
+    expect(await ids(b)).toEqual([team, teamOverFallback, legacy].sort());
+
+    // getPendingRoute applies the same filter, so a hidden route reads as missing.
+    expect(await repo.getPendingRoute(ws, priv, { viewer: b })).toBeUndefined();
+    expect(await repo.getPendingRoute(ws, onlyMe, { viewer: b })).toBeUndefined();
+    expect((await repo.getPendingRoute(ws, priv, { viewer: a }))?.id).toBe(priv);
+    expect((await repo.getPendingRoute(ws, team, { viewer: b }))?.id).toBe(team);
+
+    const teamRow = (await repo.getPendingRoute(ws, team))!;
+    const legacyRow = (await repo.getPendingRoute(ws, legacy))!;
+    expect(pendingRouteResolvableBy(teamRow, a)).toBe(true);
+    expect(pendingRouteResolvableBy(teamRow, b)).toBe(false);
+    expect(pendingRouteResolvableBy(teamRow, admin)).toBe(true);
+    expect(pendingRouteResolvableBy(teamRow, undefined)).toBe(true);
+    expect(pendingRouteResolvableBy(legacyRow, a)).toBe(false);
+    expect(pendingRouteResolvableBy(legacyRow, admin)).toBe(true);
+  });
+
+  it('pendingRouteViewer: workspace_admin role or the owner email is admin; a plain member is not', async () => {
+    const owner = (await repo.findOrCreateUser('t@t.com')).id;
+    const member = (await repo.findOrCreateUser('m@t.com')).id;
+    const wsAdmin = (await repo.findOrCreateUser('adm@t.com')).id;
+    await repo.addMember({ workspace_id: ws, user_id: member, role: 'member' });
+    await repo.addMember({ workspace_id: ws, user_id: wsAdmin, role: 'workspace_admin' });
+    expect((await repo.pendingRouteViewer(ws, owner)).is_admin).toBe(true);
+    expect((await repo.pendingRouteViewer(ws, member)).is_admin).toBe(false);
+    expect((await repo.pendingRouteViewer(ws, wsAdmin)).is_admin).toBe(true);
+    // An explicit role wins over the lookup.
+    expect((await repo.pendingRouteViewer(ws, member, 'workspace_admin')).is_admin).toBe(true);
   });
 });

@@ -17,6 +17,7 @@ export class ToolError extends Error {
       | 'already_resolved'
       | 'not_supported'
       | 'forbidden'
+      | 'not_your_route'
       | 'ambiguous',
     readonly httpStatus: 400 | 403 | 404 | 409 | 422 | 501,
     readonly extra: Record<string, unknown> = {},
