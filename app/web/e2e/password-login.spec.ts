@@ -1,5 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
-import { createDirectory, expectInDirectory, goNav, signIn, uniqueEmail } from './helpers';
+import { createDirectory, expectInDirectory, goNav, signIn, submitMagicLink, uniqueEmail } from './helpers';
 
 async function goSetup(page: Page) {
   await goNav(page, 'Setup');
@@ -98,8 +98,10 @@ test.describe('password sign-in (alongside magic link)', () => {
 
     await page.locator('.nav-logout').click();
     // Default stage is magic link — sign in that way even though a password
-    // now exists for this account, proving the two paths coexist.
-    await signIn(page, email);
+    // now exists for this account, proving the two paths coexist. With a
+    // single directory the app opens it directly (no picker), so don't wait
+    // for the Directories heading here.
+    await submitMagicLink(page, email);
     await expectInDirectory(page, 'Acme Both Co');
   });
 });
