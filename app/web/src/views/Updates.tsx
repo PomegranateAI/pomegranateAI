@@ -32,7 +32,8 @@ import {
   type UpdateApprovalMode,
   type UpdateKind,
   type RecipientList,
-  type TeamUser,
+  type WorkspaceMember,
+  rejectedRecipients,
 } from '../api.js';
 import { RunInClaude } from '../components/RunInClaude.js';
 import { FolderTargetPicker, type TargetRef } from '../components/FolderTargetPicker.js';
@@ -324,6 +325,9 @@ export function Updates({
   const [lists, setLists] = useState<RecipientList[]>([]);
   // The pending "save this list as…" name, or null when not naming one.
   const [listName, setListName] = useState<string | null>(null);
+  // Recipients the server refused on the last save (only members of this
+  // directory may receive updates), shown inline under the recipients field.
+  const [refused, setRefused] = useState<string[] | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -396,8 +400,13 @@ export function Updates({
     }
     setForm((f) => ({ ...f, recipients: [...new Set([...f.recipients, ...parts])] }));
   };
-  const removeRecipient = (addr: string) =>
+  const removeRecipient = (addr: string) => {
     setForm((f) => ({ ...f, recipients: f.recipients.filter((r) => r !== addr) }));
+    setRefused((prev) => {
+      const next = prev?.filter((r) => r !== addr) ?? null;
+      return next && next.length > 0 ? next : null;
+    });
+  };
 
   const mark = (id: string, on: boolean) =>
     setBusy((prev) => {
@@ -412,6 +421,7 @@ export function Updates({
     // holding for your approval — you see what they'll see before it sends.
     setForm({ ...EMPTY_FORM, approval_mode: isGive ? 'review' : 'autonomous' });
     setListName(null);
+    setRefused(null);
     setFormFor('new');
   };
   const openEdit = (s: UpdateSubscription) => {
@@ -429,6 +439,7 @@ export function Updates({
       recipients: isGive ? splitRecipients(s.destination) : [],
     });
     setListName(null);
+    setRefused(null);
     setFormFor(s.id);
   };
 
@@ -446,6 +457,7 @@ export function Updates({
       return;
     }
     setSaving(true);
+    setRefused(null);
     try {
       // Only send target_refs when the scope differs from the plain default
       // (this folder). Refs = this folder (as its id) + any added references.
@@ -477,7 +489,11 @@ export function Updates({
       await load();
       onPendingMutate?.(); // a review-mode create may add a pending item
     } catch (err) {
-      toast.error(`Couldn't save: ${(err as Error).message}`);
+      // A refused recipient is a form error, not a failure: say which ones
+      // inline and keep the form open so they can be fixed.
+      const rejected = rejectedRecipients(err);
+      if (rejected) setRefused(rejected);
+      else toast.error(`Couldn't save: ${(err as Error).message}`);
     } finally {
       setSaving(false);
     }
@@ -685,6 +701,7 @@ export function Updates({
                   Send to <span className="text-pome-red">*</span>
                 </label>
                 <RecipientsEditor
+                  wsId={wsId}
                   recipients={form.recipients}
                   lists={lists}
                   listName={listName}
@@ -702,6 +719,7 @@ export function Updates({
                   onSaveList={saveList}
                   onCancelSaveList={() => setListName(null)}
                 />
+                <RefusedRecipients values={refused} />
               </div>
             ) : (
               <div className="space-y-1.5">
@@ -809,6 +827,8 @@ export function Updates({
                     {form.medium === 'slack' && (
                       <p className="text-xs text-muted-foreground">Requires a linked Slack account.</p>
                     )}
+                    <p className="text-xs text-muted-foreground">{MEMBERS_ONLY_HINT}</p>
+                    <RefusedRecipients values={refused} />
                   </div>
                 </>
               )}
@@ -1156,11 +1176,25 @@ export function Updates({
   );
 }
 
+const MEMBERS_ONLY_HINT = 'Only members of this directory can receive updates.';
+
+// Inline error for recipients the server refused (not members of the directory).
+function RefusedRecipients({ values }: { values: string[] | null }) {
+  if (!values || values.length === 0) return null;
+  return (
+    <p role="alert" className="text-xs text-pome-red">
+      {values.length === 1 ? 'Not a member of this directory' : 'Not members of this directory'}:{' '}
+      {values.join(', ')}. Updates can only go to members of this directory.
+    </p>
+  );
+}
+
 // The 'give' agent's audience picker: who this broadcast goes to. The
 // counterpart to FolderTargetPicker on the 'get' side — same chips-and-dropdown
 // shape, but the chips are people, not folders. Recipients are controlled by the
 // parent; the team directory and the free-type draft are owned here.
 function RecipientsEditor({
+  wsId,
   recipients,
   lists,
   listName,
@@ -1173,6 +1207,7 @@ function RecipientsEditor({
   onSaveList,
   onCancelSaveList,
 }: {
+  wsId: string;
   recipients: string[];
   lists: RecipientList[];
   /** The in-progress "save as" name, or null when not naming a list. */
@@ -1186,15 +1221,16 @@ function RecipientsEditor({
   onSaveList: () => void;
   onCancelSaveList: () => void;
 }) {
-  const [team, setTeam] = useState<TeamUser[]>([]);
+  const [team, setTeam] = useState<WorkspaceMember[]>([]);
   const [draft, setDraft] = useState('');
 
+  // The picker offers this directory's members: they are the only people a
+  // broadcast can go to (the server refuses anyone else).
   useEffect(() => {
-    api
-      .teamDirectory()
-      .then((t) => setTeam(t.users.filter((u) => u.user_id !== t.me.user_id)))
-      .catch(() => setTeam([])); // directory is a shortcut — typing still works
-  }, []);
+    Promise.all([api.listMembers(wsId), api.getMe()])
+      .then(([{ members }, me]) => setTeam(members.filter((m) => m.user_id !== me.user_id)))
+      .catch(() => setTeam([])); // the picker is a shortcut — typing still works
+  }, [wsId]);
 
   const add = (raw: string) => {
     onAdd(raw);
@@ -1268,7 +1304,7 @@ function RecipientsEditor({
             )}
             {team.length > 0 && (
               <>
-                <DropdownMenuLabel className="text-[11px]">Teammates</DropdownMenuLabel>
+                <DropdownMenuLabel className="text-[11px]">Members of this directory</DropdownMenuLabel>
                 {team
                   .filter((u) => !recipients.includes(u.email))
                   .map((u) => (
@@ -1306,6 +1342,7 @@ function RecipientsEditor({
                   Add
                 </Button>
               </div>
+              <div className="mt-1 text-[11px] text-muted-foreground">{MEMBERS_ONLY_HINT}</div>
             </div>
           </DropdownMenuContent>
         </DropdownMenu>

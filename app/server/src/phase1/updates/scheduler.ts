@@ -18,10 +18,14 @@ import {
   type UpdateDigestInput,
 } from './synthesize.js';
 import { defaultTransports, type UpdateTransport } from './transport.js';
+import { checkRecipients, splitDestination } from './recipients.js';
 import { log } from '../../lib/log.js';
 
 /** Backoff cap: a failing subscription retries at most this far out. */
 export const ERROR_BACKOFF_CAP_MS = 6 * 60 * 60 * 1000;
+
+/** No one to send to: no allowed recipients, and no owner channel to fall back on. */
+const NO_DESTINATION = 'no destination: no allowed recipients and owner has no account email';
 
 export interface RunReport {
   subscription_id: string;
@@ -230,7 +234,7 @@ export function createUpdateScheduler(deps: UpdateSchedulerDeps): UpdateSchedule
 
       // 5b. We have a real update. Resolve the recipients for both paths.
       const to = await destinationsFor(sub);
-      if (to.length === 0) throw new Error('no destination and owner has no account email');
+      if (to.length === 0) throw new Error(NO_DESTINATION);
 
       // Record the delivery first (kept even if a send lags). Review mode records
       // it as PENDING (held for approval); autonomous records it as sent-in-flight.
@@ -335,13 +339,31 @@ export function createUpdateScheduler(deps: UpdateSchedulerDeps): UpdateSchedule
    * Everyone this update is sent to. `destination` holds a comma-separated list
    * — one address for a 'get' watch (the owner), a broadcast list for a 'give'
    * one — and empty means the owner's own channel.
+   *
+   * Explicit recipients are re-validated here (membership can change after
+   * the watch was created): anyone who is no longer allowed is dropped. If
+   * that leaves nobody, the result is empty, the same "no destination" outcome
+   * as an owner with no channel. It does NOT fall back to the owner, so a
+   * broadcast never quietly turns into a note to self.
    */
   async function destinationsFor(sub: UpdateSubscription): Promise<string[]> {
-    const explicit = (sub.destination ?? '')
-      .split(',')
-      .map((s) => s.trim())
-      .filter(Boolean);
-    if (explicit.length > 0) return explicit;
+    const explicit = splitDestination(sub.destination);
+    if (explicit.length > 0) {
+      const { allowed, rejected } = await checkRecipients(repo, {
+        ownerUserId: sub.owner_user_id,
+        targets: sub.targets,
+        recipients: explicit,
+      });
+      if (rejected.length > 0) {
+        // Count only: never log the addresses themselves.
+        log.warn('updates.recipients_dropped', {
+          subscription: sub.id,
+          dropped: rejected.length,
+          remaining: allowed.length,
+        });
+      }
+      return allowed;
+    }
     const own = await ownerChannel(sub);
     return own ? [own] : [];
   }
@@ -379,7 +401,7 @@ export function createUpdateScheduler(deps: UpdateSchedulerDeps): UpdateSchedule
     }
     const to = await destinationsFor(sub);
     if (to.length === 0) {
-      report.error = 'no destination and owner has no account email';
+      report.error = NO_DESTINATION;
       return report;
     }
     try {
