@@ -1200,14 +1200,16 @@ export function PasswordCard({ onSaved }: { onSaved?: () => void } = {}) {
       return;
     }
     setBusy(true);
+    // Read before saving: afterwards the account always has a password.
+    const hadPassword = !!me?.has_password;
     try {
-      await api.setPassword(next, me?.has_password ? current : undefined);
+      await api.setPassword(next, hadPassword ? current : undefined);
       setCurrent('');
       setNext('');
       setConfirm('');
       const updated = await api.getMe();
       setMe(updated);
-      toast.success(updated.has_password ? 'Password updated' : 'Password set');
+      toast.success(hadPassword ? 'Password updated' : 'Password set');
       onSaved?.();
     } catch (err) {
       const msg = err instanceof Error ? err.message : undefined;

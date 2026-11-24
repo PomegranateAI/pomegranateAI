@@ -1161,9 +1161,10 @@ export function App() {
         onOpenChange={(o) => !o && setCatalogGroup(null)}
         apps={catalogApps}
         onAdd={(key) => {
-          void showNavItem(key as Page);
-          setPage(key as Page);
           setCatalogGroup(null);
+          // Open it only once it's visible: the hidden-page guard above would
+          // otherwise bounce straight back to the Overview.
+          void showNavItem(key as Page).then(() => setPage(key as Page));
         }}
       />
       <SubfolderDialog

@@ -1,25 +1,10 @@
 import { test, expect } from '@playwright/test';
+import { addAgent, signUpWithDirectory } from './helpers';
 
 // The Give-updates work agent: broadcast updates about your own folder to a
 // list of teammates, with the list saveable and reusable. It's the Updates view
 // in 'give' mode, so this drives the parts that differ from Get updates — the
 // recipient chips, the saved list, and the own-folder-only scope.
-
-const uniqueEmail = () => `e2e-${Date.now()}-${Math.random().toString(36).slice(2, 8)}@acme.test`;
-
-async function signInAndCreateWorkspace(page: any, wsName = 'Broadcast Co') {
-  await page.goto('/');
-  await expect(page.locator('h2', { hasText: 'Pomegranate' })).toBeVisible();
-  await page.locator('input[type=email]').fill(uniqueEmail());
-  await page.getByRole('button', { name: 'Send link' }).click();
-  await page.getByRole('button', { name: 'Sign in' }).click();
-  await expect(page.locator('h2', { hasText: 'Directories' })).toBeVisible();
-  await page.locator('input[placeholder="My company"]').fill(wsName);
-  await page.getByRole('button', { name: 'Continue' }).click();
-  await page.getByRole('button', { name: 'Create', exact: true }).click();
-  await page.getByRole('button', { name: 'Finish' }).click();
-  await expect(page.locator('.side-nav')).toBeVisible();
-}
 
 /**
  * Broadcasts only go to members of the directory (the server refuses anyone
@@ -38,18 +23,8 @@ async function inviteMembers(page: any, emails: string[]) {
   }
 }
 
-/** Agents are opt-in: add one from its group's catalog, then open it. */
-async function addAgent(page: any, addLabel: string, label: string) {
-  await page.getByRole('button', { name: addLabel }).first().click();
-  // Each catalog tile is a label + its own "Add" button.
-  const tile = page.getByRole('dialog').locator('div.bg-card').filter({ hasText: label });
-  await tile.getByRole('button', { name: 'Add' }).click();
-  await page.keyboard.press('Escape');
-  await page.locator('.nav-item', { hasText: label }).click();
-}
-
 test('Give updates → broadcast to many recipients, save the list, reuse it', async ({ page }) => {
-  await signInAndCreateWorkspace(page);
+  await signUpWithDirectory(page, 'Broadcast Co');
   await inviteMembers(page, ['ana@acme.test', 'bo@acme.test', 'cy@acme.test']);
   await addAgent(page, 'Add work agent', 'Give updates');
 
@@ -59,9 +34,10 @@ test('Give updates → broadcast to many recipients, save the list, reuse it', a
   await page.getByRole('button', { name: 'New broadcast' }).click();
   await page.locator('textarea').first().fill('what I shipped this week');
 
-  // A broadcast reports on your own folder — no folder/teammate scope picker.
+  // A broadcast reports on your own directory (all its folders) — no
+  // directory/teammate scope picker.
   await expect(page.getByText('Add directory or teammate')).toHaveCount(0);
-  await expect(page.getByText('Reported from across your workspace', { exact: false })).toBeVisible();
+  await expect(page.getByText('Reported from across your workspace — your team sees your work, not theirs.')).toBeVisible();
 
   // Recipients: a typed address, plus a pasted block that splits into chips.
   await page.getByRole('button', { name: 'Add teammate' }).click();
@@ -99,20 +75,26 @@ test('Give updates → broadcast to many recipients, save the list, reuse it', a
   await page.getByRole('button', { name: 'Create broadcast' }).click();
 
   // ── It's listed, with its recipient count ────────────────────────────────
-  await expect(page.getByText('Your broadcasts')).toBeVisible();
-  await expect(page.getByText('what I shipped this week')).toBeVisible();
-  await expect(page.getByText('3 recipients')).toBeVisible();
+  // Scoped to the list: a new broadcast runs once straight away, so its first
+  // update (held for approval) also shows the topic, in its own section.
+  const broadcasts = page.locator('section').filter({ has: page.getByText('Your broadcasts', { exact: true }) });
+  const row = (topic: string) => broadcasts.locator('div.p-4').filter({ has: page.getByText(topic, { exact: true }) });
+  await expect(row('what I shipped this week')).toBeVisible();
+  await expect(row('what I shipped this week').getByText('3 recipients')).toBeVisible();
 
   // ── The saved list is reusable on the next broadcast ─────────────────────
   await page.getByRole('button', { name: 'New broadcast' }).click();
   await page.locator('textarea').first().fill('my quarterly wrap-up');
   await page.getByRole('button', { name: 'Add teammate' }).click();
-  await page.getByRole('menuitem', { hasText: 'Design team' }).click();
+  // The menu also lists teammates (other acme.test accounts); pick the list.
+  await page.getByRole('menuitem', { name: /^Design team/ }).click();
   for (const addr of ['ana@acme.test', 'bo@acme.test', 'cy@acme.test']) {
     await expect(page.getByText(addr, { exact: true })).toBeVisible();
   }
   await page.getByRole('button', { name: 'Create broadcast' }).click();
-  await expect(page.getByText('my quarterly wrap-up')).toBeVisible();
+  await expect(row('my quarterly wrap-up')).toBeVisible();
+  await expect(row('my quarterly wrap-up').getByText('3 recipients')).toBeVisible();
+  await expect(broadcasts.locator('div.p-4')).toHaveCount(2);
 
   // ── The two agents keep separate lists ───────────────────────────────────
   // A broadcast about my work must not show up as a topic I follow.
