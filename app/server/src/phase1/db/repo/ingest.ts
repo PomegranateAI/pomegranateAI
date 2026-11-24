@@ -41,7 +41,12 @@ export class IngestRepo {
     return kind;
   }
 
-  async insertCandidate(this: Repo, workspace_id: string, candidate: CandidateT, document_id?: string, subgraph_id = 'default'): Promise<void> {
+  /**
+   * `created_by` records the member who submitted the candidate by hand (POST
+   * /candidates). Pipeline-produced candidates leave it NULL; their audience
+   * comes from their document.
+   */
+  async insertCandidate(this: Repo, workspace_id: string, candidate: CandidateT, document_id?: string, subgraph_id = 'default', created_by?: string): Promise<void> {
     const badKind = await this.invalidKindFor(workspace_id, subgraph_id, candidate.proposed_node);
     if (badKind !== null) {
       throw new Error(`invalid_kind: '${badKind}' is not a kind of folder '${subgraph_id}'s profile`);
@@ -49,8 +54,8 @@ export class IngestRepo {
     const now = new Date().toISOString();
     const proposed = await sealJson(this, workspace_id, 'candidates.proposed_node', candidate.id, JSON.stringify(candidate.proposed_node));
     const quote = await sealText(this, workspace_id, 'candidates.source_quote', candidate.id, candidate.source_quote);
-    (await this.sql.exec(`INSERT INTO candidates (id, workspace_id, flag, proposed_node, source_quote, source_ref, conflicts_with, confidence, reason, status, proposed_by, created_at, document_id, subgraph_id)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', 'system', ?, ?, ?)`, [candidate.id, workspace_id, candidate.flag, proposed, quote, candidate.source_ref, candidate.conflicts_with ?? null, candidate.confidence, candidate.reason ?? null, now, document_id ?? null, subgraph_id]));
+    (await this.sql.exec(`INSERT INTO candidates (id, workspace_id, flag, proposed_node, source_quote, source_ref, conflicts_with, confidence, reason, status, proposed_by, created_at, document_id, subgraph_id, created_by)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', 'system', ?, ?, ?, ?)`, [candidate.id, workspace_id, candidate.flag, proposed, quote, candidate.source_ref, candidate.conflicts_with ?? null, candidate.confidence, candidate.reason ?? null, now, document_id ?? null, subgraph_id, created_by ?? null]));
   }
 
   /**

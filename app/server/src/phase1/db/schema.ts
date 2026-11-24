@@ -271,6 +271,10 @@ export function migrate(db: Database.Database): void {
       proposed_by TEXT NOT NULL DEFAULT 'system',
       created_at TEXT NOT NULL,
       resolved_at TEXT,
+      -- the member who submitted it via POST /candidates; NULL for
+      -- pipeline-produced and legacy rows. Gates who may see a document-less
+      -- candidate (its creator + workspace admins/owner).
+      created_by TEXT,
       PRIMARY KEY (workspace_id, id)
     );
     CREATE INDEX IF NOT EXISTS idx_candidates_ws_status ON candidates(workspace_id, status);
@@ -959,6 +963,8 @@ export function migrate(db: Database.Database): void {
   // item got approved. NULL = pre-reuse row; falls back to exact-signature.
   addColumnIfMissing(db, 'doc_triage', 'assessed_ids', 'TEXT');
   addColumnIfMissing(db, 'candidates', 'document_id', 'TEXT');
+  // Submitting member for a document-less candidate (see CREATE TABLE).
+  addColumnIfMissing(db, 'candidates', 'created_by', 'TEXT');
   addColumnIfMissing(db, 'graph_nodes', 'document_id', 'TEXT');
   // The router's content-aware source-type classification, persisted (it was
   // previously computed per-ingest and dropped). Context-aware triage keys

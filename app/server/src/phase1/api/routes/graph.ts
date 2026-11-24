@@ -15,6 +15,7 @@ const {
   repo,
   viewerFor,
   docTextFilenames,
+  isWorkspaceOwnerTier,
 } = core;
 // ---------- graph CRUD ----------
 
@@ -56,13 +57,14 @@ app.get('/workspaces/:ws/graph', authn, workspaceGate, async (c) => {
   const metaRows = await repo.listNodeMetaRows(ws, sg.id);
   const metaByNode = new Map(metaRows.map((r) => [r.id, r]));
   const evCounts = await repo.evidenceCounts(ws, sg.id);
-  // `can_manage` is the client-side gate for showing an editable control:
-  // cloud-native nodes (no owner) and the node's owner/admin may change it;
-  // in single-user local mode everything is manageable.
+  // `can_manage` is the client-side gate for showing an editable control. It
+  // mirrors canManageNode in curation.ts: the node's owner or the workspace
+  // owner tier; an ownerless (cloud-native) node is owner-tier only. In
+  // single-user local mode everything is manageable.
   const viewer = viewerFor(c);
-  const role = c.get('role');
+  const privileged = !viewer || await isWorkspaceOwnerTier(c, ws);
   const canManage = (owner: string | null): boolean =>
-    !viewer || !owner || owner === viewer || role === 'workspace_admin';
+    privileged || (!!owner && owner === viewer);
   const enriched = nodes.map((n) => {
     const ev = evCounts.get(n.id);
     const meta = metaByNode.get(n.id);

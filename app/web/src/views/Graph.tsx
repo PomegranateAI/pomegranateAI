@@ -414,7 +414,10 @@ export function Graph({
         setNodes((prev) => prev.map((n) => (n.id === node.id ? { ...n, visibility: target } : n)));
         toast.success(`Set to ${AUDIENCE_LABEL[target]}`);
       } catch (e: any) {
-        toast.error('Could not change privacy', { description: e.message });
+        const forbidden = /^403\b/.test(String(e?.message ?? ''));
+        toast.error('Could not change privacy', {
+          description: forbidden ? 'Only its owner or a directory admin can change who sees this.' : e.message,
+        });
       }
     },
     [wsId],
