@@ -17,6 +17,8 @@ export interface SurfaceMessagePayload {
   thread_key: string;
   text: string;
   message_id?: string;
+  /** Sent for group chats: the server only redeems identity link codes in a 1:1 chat. */
+  is_group?: boolean;
   asset_ids?: string[];
   files?: Array<{ name: string; text: string }>;
 }

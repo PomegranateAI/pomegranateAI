@@ -104,6 +104,7 @@ export const ENV_SCHEMA: readonly EnvVar[] = [
   { name: 'SIGNUP_MODE', group: 'auth', secret: false, required: 'no', default: 'closed', note: 'open | closed' },
   { name: 'CONTACT_EMAIL', group: 'auth', secret: false, required: 'no', note: 'shown to people without an account under closed signup' },
   { name: 'POMEGRANATE_DEV_INLINE_CODES', group: 'auth', secret: false, required: 'no', note: 'tests/local dev only: return sign-in codes in API responses when no mailer is set; NEVER on a reachable server' },
+  { name: 'POMEGRANATE_ALLOW_UNVERIFIED_IDENTITY_LINK', group: 'auth', secret: false, required: 'no', note: 'local/dev only: 1 = PUT /me/identities/* links a Slack id or phone without a link code (no proof of ownership); NEVER on a shared server' },
   { name: 'POMEGRANATE_SINGLE_USER', group: 'auth', secret: false, required: 'no', note: 'one implicit local identity, no sign-in; NEVER on a reachable server' },
   { name: 'POMEGRANATE_TRUSTED_PROXY_HOPS', group: 'auth', secret: false, required: 'no', default: '0', note: 'number of reverse proxies in front of the server; set 1 behind one proxy so rate limits and audit logs see the real client IP' },
   { name: 'POMEGRANATE_AUTH_RL_CAPACITY', group: 'auth', secret: false, required: 'no' },

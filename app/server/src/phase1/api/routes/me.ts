@@ -8,6 +8,15 @@ import { log } from '../../../lib/log.js';
 import { hashPassword, verifyPassword, passwordPolicyError, isBreachedPassword } from '../../../lib/passwords.js';
 import { composioConfigured } from '../../../lib/composio.js';
 import { listGithubBranches } from '../github-live.js';
+import { TokenBucketLimiter } from '../rate-limit.js';
+import {
+  LINK_CODE_TTL_MS,
+  LINK_KINDS,
+  linkInstructions,
+  mintLinkCode,
+  unverifiedIdentityLinkAllowed,
+  type LinkKind,
+} from '../identity-link.js';
 import type { Hono } from 'hono';
 import type { AppVars } from '../routes.js';
 import type { RouteCore } from './core.js';
@@ -122,13 +131,78 @@ app.put('/me/password', authn, async (c) => {
   return c.json({ ok: true });
 });
 
+// Link-code minting: 10 per hour per user (burst 10, one back every 6 min).
+const linkCodeLimiter = new TokenBucketLimiter({ capacity: 10, refillIntervalMs: 6 * 60_000 });
+
 /**
- * Link the caller's Slack identity (self-claimed). Surfaces resolve
+ * Mint a single-use code that links a Slack account / WhatsApp number to the
+ * caller once it is sent to the bot FROM that identity (redeemed in the
+ * surface relay, see identity-link.ts). 10 minutes; a new code replaces any
+ * earlier unused one for the same kind. Only a hash is stored.
+ */
+app.post('/me/identities/:kind/link-code', authn, async (c) => {
+  const kind = c.req.param('kind') as LinkKind;
+  if (!LINK_KINDS.includes(kind)) return c.json({ error: 'invalid kind' }, 400);
+  const user_id = c.get('user_id');
+  if (!linkCodeLimiter.take(user_id)) {
+    c.header('Retry-After', String(linkCodeLimiter.retryAfterSec(user_id)));
+    return c.json({ error: 'rate_limited' }, 429);
+  }
+  const code = mintLinkCode();
+  const expires_at = new Date(Date.now() + LINK_CODE_TTL_MS).toISOString();
+  await repo.createIdentityLinkCode(user_id, kind, code, expires_at);
+  log.info('identity.link_code_minted', { user: user_id, kind });
+  return c.json({ code, expires_at, instructions: linkInstructions(kind, code) });
+});
+
+/**
+ * Direct linking without proof of ownership is off unless the deployment
+ * allows it (POMEGRANATE_ALLOW_UNVERIFIED_IDENTITY_LINK=1, local/dev) or the
+ * caller is a system admin. Everyone else links with a code.
+ */
+async function directLinkAllowed(user_id: string): Promise<boolean> {
+  if (unverifiedIdentityLinkAllowed()) return true;
+  return (await repo.getUserById(user_id))?.is_admin === 1;
+}
+
+/**
+ * Unlink the caller's own identities of one kind (all Slack accounts, or the
+ * WhatsApp number). Afterwards that identity is unmapped and can be linked
+ * again — by anyone who controls it — with a fresh code.
+ */
+app.delete('/me/identities/:kind', authn, async (c) => {
+  const kind = c.req.param('kind') as LinkKind;
+  if (!LINK_KINDS.includes(kind)) return c.json({ error: 'invalid kind' }, 400);
+  const user_id = c.get('user_id');
+  const removed = await repo.deleteUserIdentities(user_id, kind);
+  if (removed > 0) {
+    for (const m of await repo.listMembershipsWithWorkspace(user_id)) {
+      await repo.logCustomerAudit(m.id, {
+        event: 'identity_unlinked',
+        actor_user_id: user_id,
+        actor_email: await userEmail(user_id),
+        source_ip: clientIp(c),
+        user_agent: c.req.header('user-agent') ?? undefined,
+        resource_type: 'user_identity',
+        resource_id: `${user_id}:${kind}`,
+        payload: { kind, removed },
+      });
+    }
+  }
+  return c.json({ ok: true, removed });
+});
+
+/**
+ * Link the caller's Slack identity directly (no proof of ownership — gated,
+ * see directLinkAllowed; the normal path is a link code). Surfaces resolve
  * "@handle"/U-ids to users through this, replacing the Slack bot's static
  * mapping file. Claiming an identity another user already holds is a 409.
  */
 app.put('/me/identities/slack', authn, async (c) => {
   const user_id = c.get('user_id');
+  if (!(await directLinkAllowed(user_id))) {
+    return c.json({ error: 'verification_required', detail: 'use a link code' }, 403);
+  }
   const parsed = z
     .object({
       team_id: z.string().trim().min(1).optional(),
@@ -175,7 +249,7 @@ app.put('/me/identities/slack', authn, async (c) => {
 });
 
 /**
- * Link the caller's WhatsApp identity (self-claimed). The whatsapp surface
+ * Link the caller's WhatsApp identity directly (gated like the Slack PUT). The whatsapp surface
  * resolves an inbound message's sender phone number to a user through this,
  * the same way `/me/identities/slack` backs the Slack relay. `phone` is
  * normalized to digits-only (see normalizePhoneDigits) so "+1 415 555 0100"
@@ -184,6 +258,9 @@ app.put('/me/identities/slack', authn, async (c) => {
  */
 app.put('/me/identities/whatsapp', authn, async (c) => {
   const user_id = c.get('user_id');
+  if (!(await directLinkAllowed(user_id))) {
+    return c.json({ error: 'verification_required', detail: 'use a link code' }, 403);
+  }
   const parsed = z
     .object({ phone: z.string().trim().min(3) })
     .safeParse(await c.req.json().catch(() => ({})));

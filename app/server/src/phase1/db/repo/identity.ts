@@ -436,6 +436,55 @@ export class IdentityRepo {
     };
   }
 
+  /** Unlink the caller's own identities of one kind. Returns rows removed. */
+  async deleteUserIdentities(this: Repo, user_id: string, kind: 'slack' | 'whatsapp'): Promise<number> {
+    const r = await this.sql.exec(`DELETE FROM user_identities WHERE user_id = ? AND kind = ?`, [user_id, kind]);
+    return r.changes;
+  }
+
+  /**
+   * Store a freshly minted identity link code (hash only). Replaces any
+   * earlier code for the same (user, kind), so only the newest one works,
+   * and sweeps expired codes as it goes.
+   */
+  async createIdentityLinkCode(this: Repo,
+    user_id: string,
+    kind: 'slack' | 'whatsapp',
+    code: string,
+    expires_at: string,
+  ): Promise<void> {
+    const now = new Date().toISOString();
+    await this.sql.tx(async () => {
+      await this.sql.exec(`DELETE FROM identity_link_codes WHERE (user_id = ? AND kind = ?) OR expires_at < ?`, [user_id, kind, now]);
+      await this.sql.exec(`INSERT INTO identity_link_codes (token_hash, user_id, kind, expires_at, created_at) VALUES (?, ?, ?, ?, ?)`, [
+        sha256(code),
+        user_id,
+        kind,
+        expires_at,
+        now,
+      ]);
+    });
+  }
+
+  /** The live code's owner, without spending it. Undefined when the code is
+   *  unknown, expired, or minted for a different kind. */
+  async peekIdentityLinkCode(this: Repo, code: string, kind: 'slack' | 'whatsapp'): Promise<{ user_id: string } | undefined> {
+    const row = (await this.sql.one<any>(`SELECT user_id, kind, expires_at FROM identity_link_codes WHERE token_hash = ?`, [sha256(code)])) as
+      | { user_id: string; kind: string; expires_at: string }
+      | undefined;
+    if (!row || row.kind !== kind || Date.parse(row.expires_at) <= Date.now()) return undefined;
+    return { user_id: row.user_id };
+  }
+
+  /** Spend a link code. The delete is conditional, so two concurrent
+   *  redemptions can't both succeed. */
+  async takeIdentityLinkCode(this: Repo, code: string, kind: 'slack' | 'whatsapp'): Promise<{ user_id: string } | undefined> {
+    const live = await this.peekIdentityLinkCode(code, kind);
+    if (!live) return undefined;
+    const r = await this.sql.exec(`DELETE FROM identity_link_codes WHERE token_hash = ? AND user_id = ? AND kind = ?`, [sha256(code), live.user_id, kind]);
+    return r.changes === 1 ? live : undefined;
+  }
+
   async listUserIdentities(this: Repo, user_id: string): Promise<UserIdentity[]> {
     return (await this.sql.query<any>(`SELECT * FROM user_identities WHERE user_id = ? ORDER BY created_at`, [user_id])) as UserIdentity[];
   }
@@ -607,7 +656,7 @@ export class IdentityRepo {
    * default folder is set — same pointer-never-grant rule as getUserDefault.
    *
    * Account events (sign_in, sign_out, sign_in_failed, password_changed) and
-   * identity_linked are excluded: they fan out one row per membership in a
+   * identity_linked / identity_unlinked are excluded: they fan out one row per membership in a
    * single action, so the "newest" of them is an arbitrary
    * workspace, not where the user actually worked.
    */
@@ -617,7 +666,7 @@ export class IdentityRepo {
            JOIN memberships m
              ON m.workspace_id = cal.workspace_id AND m.user_id = cal.actor_user_id
           WHERE cal.actor_user_id = ?
-            AND cal.event NOT IN ('sign_in', 'sign_out', 'sign_in_failed', 'password_changed', 'mfa_enabled', 'mfa_disabled', 'mfa_recovery_code_used', 'sign_in_failures_alert', 'identity_linked')
+            AND cal.event NOT IN ('sign_in', 'sign_out', 'sign_in_failed', 'password_changed', 'mfa_enabled', 'mfa_disabled', 'mfa_recovery_code_used', 'sign_in_failures_alert', 'identity_linked', 'identity_unlinked')
           ORDER BY cal.id DESC
           LIMIT 1`, [user_id])) as { workspace_id: string } | undefined;
     return row?.workspace_id;

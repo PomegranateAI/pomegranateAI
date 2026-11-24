@@ -49,6 +49,9 @@ beforeAll(async () => {
   const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'pom-sroute-'));
   process.env.POMEGRANATE_DB_PATH = path.join(tmpDir, 'p.db');
   process.env.POMEGRANATE_FILES_DIR = path.join(tmpDir, 'files');
+  // These tests link identities directly; the link-code flow is covered in
+  // identity-link.test.ts.
+  process.env.POMEGRANATE_ALLOW_UNVERIFIED_IDENTITY_LINK = '1';
   process.env.SURFACE_AGENT_SECRET = 'shh-relay';
 });
 
@@ -177,7 +180,7 @@ describe('POST /agent/surface/messages', () => {
     });
     expect(r.status).toBe(200);
     expect(r.json.unmapped).toBe(true);
-    expect(r.json.reply).toContain('link your Slack');
+    expect(r.json.reply).toContain('Connect Slack, get a link code');
   });
 
   it('multiple folders + no default → runs in the folder of last activity', async () => {
@@ -357,7 +360,7 @@ describe('POST /agent/surface/messages [WhatsApp]', () => {
     });
     expect(r.status).toBe(200);
     expect(r.json.unmapped).toBe(true);
-    expect(r.json.reply).toContain('link this WhatsApp number');
+    expect(r.json.reply).toContain('Connect WhatsApp, get a link code');
   });
 
   it('successfully processes a message and routes to a folder', async () => {
