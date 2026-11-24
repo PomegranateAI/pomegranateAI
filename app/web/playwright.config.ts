@@ -40,6 +40,11 @@ export default defineConfig({
         SIGNUP_MODE: 'open',
         POMEGRANATE_DEV_INLINE_CODES: '1',
         POMEGRANATE_LLM_PROVIDER: 'anthropic',
+        // Every spec signs in from the same IP (localhost), a few seconds
+        // apart: the default auth limit (burst 20, one back per 3s) is sized
+        // for real users and 429s a full run. The limiter has its own unit
+        // tests (auth-hardening.test.ts).
+        POMEGRANATE_AUTH_RL_CAPACITY: '500',
       },
     },
     {

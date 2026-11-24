@@ -1,112 +1,68 @@
-import { test, expect } from '@playwright/test';
+import { test, expect, type Page } from '@playwright/test';
+import { addAgent, catalogTile, signUpWithDirectory } from './helpers';
 
-const uniqueEmail = () => `e2e-${Date.now()}-${Math.random().toString(36).slice(2, 8)}@acme.test`;
+// Agents in the sidebar are opt-in: each group (Collab agents, Work agents)
+// has its own catalog, and an added agent can be hidden again. (This file used
+// to cover the custom-agent builder — "New agent", context notes, examples, a
+// test panel — which was removed from the product.)
 
-async function signInAndCreateWorkspace(page: any, wsName = 'AgentCo') {
-  await page.goto('/');
-  await expect(page.locator('h2', { hasText: 'Pomegranate' })).toBeVisible();
-  await page.locator('input[type=email]').fill(uniqueEmail());
-  await page.getByRole('button', { name: 'Send link' }).click();
-  await page.getByRole('button', { name: 'Sign in' }).click();
-  await expect(page.locator('h2', { hasText: 'Workspaces' })).toBeVisible();
-  await page.locator('input[placeholder="My company"]').fill(wsName);
-  await page.getByRole('button', { name: 'Continue' }).click();
-  await page.locator('button.pome-btn', { hasText: 'Create' }).click();
-  await expect(page.locator('.side-nav')).toBeVisible();
-}
+const WORK_AGENTS = ['Draft', 'Synthesize', 'Catch-up', 'Follow-up', 'Give updates'];
+const COLLAB_AGENTS = ['Get updates', 'Get feedback'];
 
-async function goToAgents(page: any) {
-  await page.locator('.nav-item', { hasText: 'Agents' }).click();
-  await page.waitForTimeout(300);
-}
+const navItem = (page: Page, label: string) => page.locator('.side-nav .nav-item', { hasText: label });
 
-// ─── Agents feature ────────────────────────────────────────────────────────
+test('Agents → each group has its own catalog; a fresh directory has none added', async ({ page }) => {
+  await signUpWithDirectory(page, 'AgentCatalogCo');
 
-test('Agents → create agent, unified Context card with notes + documents', async ({ page }) => {
-  await signInAndCreateWorkspace(page, 'AgentContextCo');
-  await goToAgents(page);
+  for (const label of [...WORK_AGENTS, ...COLLAB_AGENTS]) {
+    await expect(navItem(page, label)).toHaveCount(0);
+  }
 
-  // Empty state — create button visible
-  await expect(page.getByRole('button', { name: 'New agent' })).toBeVisible();
+  // Work agents catalog: all five, none added yet, and no collab agents.
+  await page.getByRole('button', { name: 'Add work agent' }).first().click();
+  await expect(page.getByRole('dialog').getByRole('heading', { name: 'Add a work agent' })).toBeVisible();
+  for (const label of WORK_AGENTS) {
+    await expect(catalogTile(page, label).getByRole('button', { name: 'Add' })).toBeVisible();
+  }
+  for (const label of COLLAB_AGENTS) {
+    await expect(catalogTile(page, label)).toHaveCount(0);
+  }
+  await page.keyboard.press('Escape');
 
-  // Create a new agent
-  await page.getByRole('button', { name: 'New agent' }).click();
-  await page.getByPlaceholder('Name (e.g. Slack reviewer)').fill('Feline Editor');
-  await page.locator('textarea[placeholder*="What does this agent do"]').fill(
-    'Replaces informal animal names with scientific equivalents.',
-  );
-  await page.locator('form', { has: page.getByPlaceholder('Name (e.g. Slack reviewer)') }).getByRole('button', { name: 'Create' }).click();
-
-  // Should land on agent detail page
-  await expect(page.locator('h1', { hasText: 'Feline Editor' })).toBeVisible({ timeout: 5_000 });
-
-  // ── Check unified Context card structure ─────────────────────────────────
-  // CardTitle renders as a <div>; verify exactly one "Context" card title
-  await expect(page.locator('div.text-base', { hasText: /^Context$/ })).toHaveCount(1);
-
-  // Old separate card titles should NOT exist
-  await expect(page.locator('div', { hasText: /^Reference documents$/ })).toHaveCount(0);
-  await expect(page.locator('div', { hasText: /^Agent context$/ })).toHaveCount(0);
-
-  // Both sub-sections should be present within that card
-  await expect(page.getByText('Notes', { exact: true })).toBeVisible();
-  await expect(page.getByText('Documents', { exact: true })).toBeVisible();
-
-  // ── Notes: type and save — find the context notes textarea via its placeholder ──
-  const contextTextarea = page.getByPlaceholder(/e\.g\.\n- Replace/);
-  await contextTextarea.fill('Replace "cat" with "feline". Replace "dog" with "canine".');
-  await page.getByRole('button', { name: 'Save' }).click();
-  await expect(page.getByText(/context saved/i).or(page.getByText(/saved/i)).first()).toBeVisible({ timeout: 5_000 });
-  // Button returns to disabled saved state
-  await expect(page.locator('button', { hasText: 'Saved' })).toBeDisabled();
-
-  // ── Documents: upload drop-zone is visible ───────────────────────────────
-  await expect(page.getByText('Upload a document')).toBeVisible();
-
-  // Upload a small text document
-  const fileInput = page.locator('input[type=file]');
-  await fileInput.setInputFiles({
-    name: 'rules.txt',
-    mimeType: 'text/plain',
-    buffer: Buffer.from('Rule 1: cat → feline\nRule 2: dog → canine'),
-  });
-  await expect(page.getByText(/rules\.txt.*added|added/i).first()).toBeVisible({ timeout: 10_000 });
-  // Document appears in the list (li.group is the doc row, not the toast li)
-  await expect(page.locator('li.group.flex', { hasText: 'rules.txt' })).toBeVisible({ timeout: 5_000 });
-
-  // ── Test panel: verify the Run button and its textarea exist ────────────
-  await expect(page.getByRole('button', { name: 'Run' })).toBeVisible();
-  await expect(page.getByPlaceholder('Paste a message here…')).toBeVisible();
+  // Collab agents catalog: the other two.
+  await page.getByRole('button', { name: 'Add collab agent' }).first().click();
+  await expect(page.getByRole('dialog').getByRole('heading', { name: 'Add a collab agent' })).toBeVisible();
+  for (const label of COLLAB_AGENTS) {
+    await expect(catalogTile(page, label).getByRole('button', { name: 'Add' })).toBeVisible();
+  }
+  for (const label of WORK_AGENTS) {
+    await expect(catalogTile(page, label)).toHaveCount(0);
+  }
 });
 
-test('Agents → add and delete example, applies toggle works', async ({ page }) => {
-  await signInAndCreateWorkspace(page, 'AgentExampleCo');
-  await goToAgents(page);
+test('Agents → add a work agent, it persists across reload, hide it again', async ({ page }) => {
+  await signUpWithDirectory(page, 'AgentAddCo');
 
-  await page.getByRole('button', { name: 'New agent' }).click();
-  await page.getByPlaceholder('Name (e.g. Slack reviewer)').fill('Example Tester');
-  await page.locator('textarea[placeholder*="What does this agent do"]').fill('Test agent for examples.');
-  await page.locator('form', { has: page.getByPlaceholder('Name (e.g. Slack reviewer)') }).getByRole('button', { name: 'Create' }).click();
-  await expect(page.locator('h1', { hasText: 'Example Tester' })).toBeVisible({ timeout: 5_000 });
+  await addAgent(page, 'Add work agent', 'Draft');
+  await expect(page.locator('main h1', { hasText: 'Draft' })).toBeVisible();
 
-  // Add an example
-  // AddExampleForm starts collapsed; open it first
-  await page.getByRole('button', { name: 'Add example' }).click();
-  await expect(page.getByRole('button', { name: 'Save example' })).toBeVisible({ timeout: 3_000 });
+  // Saved server-side, per directory: still there after a reload.
+  await page.reload();
+  await expect(navItem(page, 'Draft')).toBeVisible({ timeout: 20_000 });
+  await page.getByRole('button', { name: 'Add work agent' }).first().click();
+  await expect(catalogTile(page, 'Draft').getByText('Added')).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('dialog')).toHaveCount(0);
 
-  // Fill the input/output textareas (identified by their unique placeholders)
-  await page.getByPlaceholder('e.g. I love my cat').fill('Hello cat');
-  await page.getByPlaceholder('e.g. I love my feline').fill('Hello feline');
-  await page.getByRole('button', { name: 'Save example' }).click();
-  await expect(page.getByText(/example added/i).first()).toBeVisible({ timeout: 5_000 });
+  // Hide it: the cross is revealed on hover.
+  await navItem(page, 'Draft').hover();
+  await page.getByRole('button', { name: 'Hide Draft' }).click();
+  await expect(navItem(page, 'Draft')).toHaveCount(0);
 
-  // Example appears in the list (ExampleList renders divs with class "group")
-  await expect(page.locator('div.group', { hasText: 'Hello cat' })).toBeVisible();
-
-  // Delete the example — button is hidden until hover
-  const exampleItem = page.locator('div.group', { hasText: 'Hello cat' });
-  await exampleItem.hover();
-  await exampleItem.locator('button[title="Delete example"]').click({ force: true });
-  // removeExample has no toast — just verify the item disappears
-  await expect(page.locator('div.group', { hasText: 'Hello cat' })).toHaveCount(0);
+  // Hidden is saved too, and the catalog offers it again.
+  await page.reload();
+  await expect(page.locator('.side-nav')).toBeVisible({ timeout: 20_000 });
+  await expect(navItem(page, 'Draft')).toHaveCount(0);
+  await page.getByRole('button', { name: 'Add work agent' }).first().click();
+  await expect(catalogTile(page, 'Draft').getByRole('button', { name: 'Add' })).toBeVisible();
 });
