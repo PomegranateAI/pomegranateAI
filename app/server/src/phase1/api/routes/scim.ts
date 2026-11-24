@@ -42,16 +42,15 @@ function truthy(v: unknown): boolean | undefined {
 }
 
 export function registerScim(app: Hono<{ Variables: AppVars }>, core: RouteCore): void {
-  const { repo, clientIp } = core;
+  const { repo, clientIp, authGuard } = core;
 
   const err = (c: any, status: number, detail: string) =>
     c.json({ schemas: [SCHEMA_ERROR], status: String(status), detail }, status, { 'content-type': 'application/scim+json' });
 
-  const authorized = (c: any): boolean => {
+  const authorized = (presented: string | undefined): boolean => {
     const expected = scimToken();
-    const header = c.req.header('Authorization') ?? '';
-    if (!expected || !header.startsWith('Bearer ')) return false;
-    const a = Buffer.from(header.slice(7));
+    if (!expected || !presented) return false;
+    const a = Buffer.from(presented);
     const b = Buffer.from(expected);
     return a.length === b.length && timingSafeEqual(a, b);
   };
@@ -89,7 +88,11 @@ export function registerScim(app: Hono<{ Variables: AppVars }>, core: RouteCore)
   };
 
   app.use('/scim/v2/*', async (c, next) => {
-    if (!authorized(c)) return err(c, 401, 'invalid or missing SCIM token');
+    const header = c.req.header('Authorization') ?? '';
+    const presented = header.startsWith('Bearer ') ? header.slice(7) : undefined;
+    const { value: ok, limited } = await authGuard.check(c, presented, () => authorized(presented));
+    if (limited) return limited;
+    if (!ok) return err(c, 401, 'invalid or missing SCIM token');
     await next();
   });
 

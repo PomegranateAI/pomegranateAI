@@ -40,7 +40,7 @@ import { parseSubgraphTokens } from '../../../lib/subgraph-routing.js';
 import { embeddingToBlob, embeddingTextForNode, getEmbedder } from '../../../lib/embeddings.js';
 import { buildScopedGraph, edgesForPackedGraph } from '../../retrieval/pack.js';
 import { sourceRagEnabled, embedAndStoreChunks } from '../../retrieval/source-rag.js';
-import { authLimiterFromEnv } from '../rate-limit.js';
+import { AuthGuard, authLimiterFromEnv } from '../rate-limit.js';
 import {
   ensureGmailAuthConfig,
   startGmailConnect,
@@ -121,6 +121,9 @@ const corsOrigins = PUBLIC_ORIGIN
 // defaults; configurable via env. Keyed by client IP. Applied below to the
 // two auth routes only.
 const authLimiter = authLimiterFromEnv();
+// Per-IP budget for failed credential checks + the verified-credential set the
+// API-wide limiter keys on (rate-limit.ts). Shared by every credential gate.
+const authGuard = new AuthGuard();
 async function authRateLimit(c: any, next: any) {
   const key = clientIp(c) ?? 'unknown';
   if (!authLimiter.take(key)) {
@@ -417,7 +420,8 @@ const authn: MiddlewareHandler<{ Variables: AppVars }> =
     const auth = c.req.header('Authorization');
     if (!auth || !auth.startsWith('Bearer ')) return c.json({ error: 'unauthorized' }, 401);
     const token = auth.slice(7);
-    const sess = await repo.getSession(token);
+    const { value: sess, limited } = await authGuard.check(c, token, () => repo.getSession(token));
+    if (limited) return limited;
     if (!sess) return c.json({ error: 'invalid session' }, 401);
     // MFA_REQUIRED policy, not yet enrolled: only the enrolment endpoints.
     if (sess.mfa_enrollment_required && !MFA_ENROLLMENT_PATHS.has(c.req.path)) {
@@ -2783,6 +2787,13 @@ function surfaceSecretOk(header: string | undefined): boolean {
   return a.length === b.length && timingSafeEqual(a, b);
 }
 
+/** The relay's secret check under the per-IP failure budget: a 401/429 to return, or undefined when it passes. */
+async function surfaceDenied(c: any): Promise<Response | undefined> {
+  const header = c.req.header('x-surface-secret') as string | undefined;
+  const { value: ok, limited } = await authGuard.check(c, header, () => surfaceSecretOk(header));
+  return limited ?? (ok ? undefined : c.json({ error: 'unauthorized' }, 401));
+}
+
 /**
  * The effective folder for a surface call: the user's per-surface default,
  * else the folder of their last recorded activity, else their only folder.
@@ -2873,6 +2884,8 @@ return {
   mcpDeps,
   surfaceTools,
   surfaceSecretOk,
+  surfaceDenied,
+  authGuard,
   surfaceFolderFor,
   UNMAPPED_REPLY,
   NO_DEFAULT_REPLY,

@@ -109,6 +109,8 @@ export const ENV_SCHEMA: readonly EnvVar[] = [
   { name: 'POMEGRANATE_TRUSTED_PROXY_HOPS', group: 'auth', secret: false, required: 'no', default: '0', note: 'number of reverse proxies in front of the server; set 1 behind one proxy so rate limits and audit logs see the real client IP' },
   { name: 'POMEGRANATE_AUTH_RL_CAPACITY', group: 'auth', secret: false, required: 'no' },
   { name: 'POMEGRANATE_AUTH_RL_REFILL_MS', group: 'auth', secret: false, required: 'no' },
+  { name: 'POMEGRANATE_AUTH_FAIL_RL_CAPACITY', group: 'auth', secret: false, required: 'no', default: '30', note: 'failed credential checks (session, MCP token, connector, SCIM, surface secret) allowed per client IP before 429' },
+  { name: 'POMEGRANATE_AUTH_FAIL_RL_REFILL_MS', group: 'auth', secret: false, required: 'no', default: '2000', note: 'ms to regain one failed-check allowance' },
   { name: 'POMEGRANATE_CREDENTIALS_KEY', group: 'auth', secret: true, required: 'no', note: 'encrypts per-user app credentials at rest' },
   { name: 'POMEGRANATE_ORG_EMAIL_DOMAINS', group: 'auth', secret: false, required: 'no' },
   { name: 'POMEGRANATE_PERSONAL_EMAIL_DOMAINS', group: 'auth', secret: false, required: 'no' },

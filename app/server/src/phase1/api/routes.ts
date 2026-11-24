@@ -96,6 +96,7 @@ export function buildApp(ctx: RouteCtx): Hono<{ Variables: AppVars }> {
     isWorkspaceOwnerTier,
     mcpDeps,
     clientIp,
+    authGuard,
   } = core;
 app.use('*', cors({ origin: corsOrigins }));
 
@@ -136,7 +137,7 @@ app.use('*', async (c, next) => {
 });
 
 // ---------- rate limits ----------
-// Per credential (or per IP without one). Two buckets: a generous one for every
+// Per verified credential (or per IP otherwise, see rateLimitKey). Two buckets: a generous one for every
 // route, and a tighter one for the routes that run the LLM pipeline on each
 // call (ingest, MCP), where a runaway client or a stolen token costs real
 // money and can starve the serialized ingest queue. Defaults allow 10 req/s
@@ -149,7 +150,7 @@ const HEAVY_ROUTE = /^\/(mcp\/(server|tools\/|connector\/)|workspaces\/[^/]+\/in
 app.use('*', async (c, next) => {
   const path = new URL(c.req.url).pathname;
   if (path === '/healthz' || c.req.method === 'OPTIONS') return next();
-  const key = rateLimitKey(c, clientIp(c));
+  const key = rateLimitKey(c, clientIp(c), authGuard);
   const heavy = c.req.method === 'POST' && HEAVY_ROUTE.test(path);
   const limiter = !apiLimiter.take(key) ? apiLimiter : heavy && !heavyLimiter.take(key) ? heavyLimiter : null;
   if (limiter) {
@@ -238,7 +239,7 @@ registerUsage(app, core);
 registerAdmin(app, core);
 registerDeletionAudit(app, core);
 mountOAuth(app, repo);
-mountMcpHttp(app, mcpDeps);
+mountMcpHttp(app, mcpDeps, authGuard);
 registerSurfaceAgent(app, core);
 registerSlackListen(app, core);
 

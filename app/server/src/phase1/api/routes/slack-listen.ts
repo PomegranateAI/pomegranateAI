@@ -20,7 +20,7 @@ import type { RouteCore } from './core.js';
 export function registerSlackListen(app: Hono<{ Variables: AppVars }>, core: RouteCore): void {
 const {
   ctx,
-  surfaceSecretOk,
+  surfaceDenied,
   repo,
   UNMAPPED_REPLY,
   surfaceFolderFor,
@@ -41,7 +41,8 @@ const {
 
 app.get('/agent/surface/automations/due', async (c) => {
   if (!process.env.SURFACE_AGENT_SECRET) return c.json({ error: 'surface agent not configured' }, 501);
-  if (!surfaceSecretOk(c.req.header('x-surface-secret'))) return c.json({ error: 'unauthorized' }, 401);
+  const denied = await surfaceDenied(c);
+  if (denied) return denied;
   const team_id = c.req.query('team_id');
   if (!team_id) return c.json({ error: 'team_id required' }, 400);
   const due = (await repo.dueAutomations(new Date(), 'slack_listen')).filter((a) => a.slack_team_id === team_id);
@@ -57,7 +58,8 @@ const SurfaceAutomationUpsertBody = z.object({
 
 app.post('/agent/surface/automations/upsert', async (c) => {
   if (!process.env.SURFACE_AGENT_SECRET) return c.json({ error: 'surface agent not configured' }, 501);
-  if (!surfaceSecretOk(c.req.header('x-surface-secret'))) return c.json({ error: 'unauthorized' }, 401);
+  const denied = await surfaceDenied(c);
+  if (denied) return denied;
   const parsed = SurfaceAutomationUpsertBody.safeParse(await c.req.json().catch(() => null));
   if (!parsed.success) return c.json({ error: 'invalid' }, 400);
   const { team_id, slack_user_id, channel_id, cadence_ms } = parsed.data;
@@ -95,7 +97,8 @@ app.post('/agent/surface/automations/upsert', async (c) => {
 
 app.delete('/agent/surface/automations/slack-listen', async (c) => {
   if (!process.env.SURFACE_AGENT_SECRET) return c.json({ error: 'surface agent not configured' }, 501);
-  if (!surfaceSecretOk(c.req.header('x-surface-secret'))) return c.json({ error: 'unauthorized' }, 401);
+  const denied = await surfaceDenied(c);
+  if (denied) return denied;
   const team_id = c.req.query('team_id');
   const slack_user_id = c.req.query('slack_user_id');
   const channel_id = c.req.query('channel_id');
@@ -125,7 +128,8 @@ const SurfaceAutomationReportRunBody = z.object({
 
 app.post('/agent/surface/automations/:id/report-run', async (c) => {
   if (!process.env.SURFACE_AGENT_SECRET) return c.json({ error: 'surface agent not configured' }, 501);
-  if (!surfaceSecretOk(c.req.header('x-surface-secret'))) return c.json({ error: 'unauthorized' }, 401);
+  const denied = await surfaceDenied(c);
+  if (denied) return denied;
   const parsed = SurfaceAutomationReportRunBody.safeParse(await c.req.json().catch(() => null));
   if (!parsed.success) return c.json({ error: 'invalid' }, 400);
   const { team_id, slack_user_id, outcome, window_to, items_seen, items_ingested, document_ids, error } = parsed.data;
