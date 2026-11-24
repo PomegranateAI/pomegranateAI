@@ -168,9 +168,31 @@ export class MediaService {
     if (!visible) return [];
     return await this.repo.listNodeMediaAssets(ws, user, node) as Asset[];
   }
-  async documentAssets(ws: string, document: string, user: string): Promise<Asset[]> {
-    if (!await this.repo.getDocument(ws, document)) return [];
+  /**
+   * A document's attachments for a human (UI) read, or null when the document
+   * is missing or not visible to `user`. Callers answer 404 for both, so a
+   * hidden document looks the same as a missing one.
+   */
+  async documentAssets(ws: string, document: string, user: string): Promise<Asset[] | null> {
+    if (!await this.repo.documentVisibleToViewer(ws, document, user)) return null;
     return await this.repo.listDocumentMediaAssets(ws, user, document) as Asset[];
+  }
+  /**
+   * The AI-read (MCP) gate for an asset, on top of `authorized` (owner, or
+   * asset visibility 'team'). AI reads never see 'only_me' content, even the
+   * owner's, so an attached asset must be reachable through at least one
+   * AI-readable node or document (repo.getMediaAssetAiAttachment).
+   * An asset attached to nothing has no node or document to inherit an
+   * audience from, so it keeps the asset's own rule (owner, or 'team'); assets
+   * have no 'only_me' setting of their own.
+   * This is stricter than the web route: an asset shared 'team' but attached
+   * only to content the viewer's AI cannot read stays hidden here.
+   */
+  async aiReadable(ws: string, id: string, user: string): Promise<Asset> {
+    const asset = await this.authorized(ws, id, user);
+    const access = await this.repo.getMediaAssetAiAttachment(ws, asset.id, user);
+    if (access.attached && !access.readable) throw new MediaError('asset_not_found', 404);
+    return asset;
   }
   async deleteWorkspace(ws: string): Promise<void> {
     // Fail before dropping DB references on storage failure; retrying DELETE is safe.

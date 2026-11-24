@@ -351,3 +351,86 @@ describe('shared media runtime', () => {
     expect(readMedia).not.toHaveBeenCalled();
   });
 });
+
+describe('media access follows node and document visibility', () => {
+  async function filedAsset() {
+    await request(`/workspaces/${ws}/media-readers/default/audio`, { enabled: true, config: { output: 'log' } }, 'PUT');
+    const uploaded = await upload();
+    expect(uploaded.status).toBe(200);
+    const node = (await repo.listNodes(ws))[0]!;
+    const setNode = (visibility: string) =>
+      repo.db.prepare('UPDATE graph_nodes SET visibility=?, owner_user_id=? WHERE workspace_id=? AND id=?')
+        .run(visibility, user, ws, node.id);
+    return { asset_id: uploaded.body.asset_id as string, document_id: uploaded.body.document_id as string, node, setNode };
+  }
+  async function member() {
+    const other = await repo.findOrCreateUser('member-b@media.test');
+    await repo.addMember({ workspace_id: ws, user_id: other.id, role: 'member' });
+    return { id: other.id, session: await repo.createSession(other.id) };
+  }
+  const mcpGet = (href: string, bearer: string) => app.request(href, { headers: { authorization: `Bearer ${bearer}` } });
+
+  it("hides a private document's asset list from another member, as for a missing document", async () => {
+    const { asset_id, document_id, setNode } = await filedAsset();
+    setNode('private');
+    // Share the asset itself, so only the document's audience can hide it.
+    await request(`/workspaces/${ws}/assets/${asset_id}`, { visibility: 'team' }, 'PATCH');
+    const b = await member();
+    const hidden = await request(`/workspaces/${ws}/documents/${document_id}/assets`, undefined, 'GET', b.session);
+    const missing = await request(`/workspaces/${ws}/documents/doc_missing/assets`, undefined, 'GET', b.session);
+    expect(hidden).toEqual(missing);
+    expect(hidden.status).toBe(404);
+    const owner = await request(`/workspaces/${ws}/documents/${document_id}/assets`);
+    expect(owner.status).toBe(200);
+    expect(owner.body.assets.map((a: any) => a.id)).toEqual([asset_id]);
+    setNode('team');
+    const shared = await request(`/workspaces/${ws}/documents/${document_id}/assets`, undefined, 'GET', b.session);
+    expect(shared.body.assets.map((a: any) => a.id)).toEqual([asset_id]);
+  });
+
+  it("refuses the owner's MCP download of an asset attached only to their only_me node", async () => {
+    const { asset_id, node, setNode } = await filedAsset();
+    setNode('only_me');
+    const mcpToken = (await repo.issueMcpToken({ workspace_id: ws, user_id: user })).token;
+    const href = `/mcp/workspaces/${ws}/assets/${asset_id}/content`;
+    expect((await mcpGet(href, mcpToken)).status).toBe(404);
+    // The owner's human (web) download still works: only_me is human-eyes-only.
+    expect((await app.request(`/workspaces/${ws}/assets/${asset_id}/content`, { headers: { authorization: `Bearer ${token}` } })).status).toBe(200);
+    const context = await request('/mcp/tools/get_context', { scope: 'all', ids: [node.id] }, 'POST', mcpToken);
+    expect(JSON.stringify(context.body)).not.toContain(asset_id);
+    setNode('private');
+    expect((await mcpGet(href, mcpToken)).status).toBe(200);
+    setNode('team');
+    expect((await mcpGet(href, mcpToken)).status).toBe(200);
+  });
+
+  it('blocks the chain from a document listing to an MCP download of only_me media', async () => {
+    const { asset_id, document_id, setNode } = await filedAsset();
+    setNode('only_me');
+    const listed = await request(`/workspaces/${ws}/documents/${document_id}/assets`);
+    expect(listed.status).toBe(200);
+    const learned = listed.body.assets[0].id as string;
+    expect(learned).toBe(asset_id);
+    const mcpToken = (await repo.issueMcpToken({ workspace_id: ws, user_id: user })).token;
+    expect((await mcpGet(`/mcp/workspaces/${ws}/assets/${learned}/content`, mcpToken)).status).toBe(404);
+    // A member cannot learn it either, even once the asset is shared 'team'.
+    await request(`/workspaces/${ws}/assets/${asset_id}`, { visibility: 'team' }, 'PATCH');
+    const b = await member();
+    expect((await request(`/workspaces/${ws}/documents/${document_id}/assets`, undefined, 'GET', b.session)).status).toBe(404);
+    const bToken = (await repo.issueMcpToken({ workspace_id: ws, user_id: b.id })).token;
+    expect((await mcpGet(`/mcp/workspaces/${ws}/assets/${learned}/content`, bToken)).status).toBe(404);
+  });
+
+  it('keeps the asset rule for an MCP download of an asset attached to nothing', async () => {
+    const service = new MediaService(repo, root);
+    const asset = await service.upload(ws, user, 'loose.wav', 'audio/wav', wav);
+    const mcpToken = (await repo.issueMcpToken({ workspace_id: ws, user_id: user })).token;
+    const href = `/mcp/workspaces/${ws}/assets/${asset.id}/content`;
+    expect((await mcpGet(href, mcpToken)).status).toBe(200);
+    const b = await member();
+    const bToken = (await repo.issueMcpToken({ workspace_id: ws, user_id: b.id })).token;
+    expect((await mcpGet(href, bToken)).status).toBe(404);
+    await repo.setMediaAssetVisibility('team', ws, asset.id);
+    expect((await mcpGet(href, bToken)).status).toBe(200);
+  });
+});

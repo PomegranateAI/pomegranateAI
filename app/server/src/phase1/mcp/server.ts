@@ -184,7 +184,9 @@ export function mountMcpHttp(app: Hono<any, any, any>, deps: McpDeps): void {
     if ((await deps.repo.getWorkspace(ws))?.ai_allowed === 0) return c.json({ error: 'not_found' }, 404);
     if (!await deps.repo.getMembership(ws, c.get('user_id'))) return c.json({ error: 'forbidden' }, 403);
     if (!deps.media) return c.json({ error: 'asset_unavailable' }, 503);
-    return serveMediaContent(c, deps.media, ws, c.req.param('id'), c.get('user_id'));
+    // AI read: an asset reachable only through only_me (or otherwise not
+    // AI-readable) nodes or documents is refused, even for its owner.
+    return serveMediaContent(c, deps.media, ws, c.req.param('id'), c.get('user_id'), { aiRead: true });
   });
 
   // ---------- REST transport: GET /mcp/tools + POST /mcp/tools/<name> ----------

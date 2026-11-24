@@ -112,6 +112,31 @@ export class MediaRepo {
       WHERE a.workspace_id=? AND a.deleting=0 AND da.document_id=? AND (a.visibility='team' OR a.owner_user_id=?)`, [ws, document_id, user_id]);
   }
 
+  /**
+   * Attachment-level access for an AI (MCP) read of an asset. `attached` says
+   * whether the asset is linked to any document at all; `readable` says
+   * whether at least one link reaches the viewer through AI-readable content:
+   *   - a linked document visible under the aiRead document filter (it has an
+   *     AI-readable note, or it has no notes and its ingest is readable), or
+   *   - a node that cites a linked document through the evidence ledger and is
+   *     itself AI-readable: team, or the viewer's own non-'only_me' node.
+   * 'only_me' material never counts, even for its owner.
+   */
+  async getMediaAssetAiAttachment(this: Repo, ws: string, asset_id: string, viewer: string): Promise<{ attached: boolean; readable: boolean }> {
+    const f = this.documentVisibilityFilter(viewer, { aiRead: true, alias: 'd' });
+    const row = await this.sql.one<any>(`SELECT
+        EXISTS(SELECT 1 FROM document_assets da0 WHERE da0.workspace_id=? AND da0.asset_id=?) AS attached,
+        (EXISTS(SELECT 1 FROM document_assets da JOIN documents d ON d.workspace_id=da.workspace_id AND d.id=da.document_id
+           WHERE da.workspace_id=? AND da.asset_id=?${f.sql})
+         OR EXISTS(SELECT 1 FROM document_assets da2
+           JOIN node_evidence ne ON ne.workspace_id=da2.workspace_id AND ne.document_id=da2.document_id
+           JOIN graph_nodes n ON n.workspace_id=ne.workspace_id AND n.id=ne.node_id
+           WHERE da2.workspace_id=? AND da2.asset_id=?
+             AND (n.visibility='team' OR (n.owner_user_id=? AND n.visibility<>'only_me')))) AS readable`,
+      [ws, asset_id, ws, asset_id, ...f.params, ws, asset_id, viewer]);
+    return { attached: !!row?.attached, readable: !!row?.readable };
+  }
+
   async listWorkspaceMediaAssets(this: Repo, ws: string): Promise<unknown[]> {
     return (await this.sql.query('SELECT * FROM media_assets WHERE workspace_id=?', [ws]));
   }

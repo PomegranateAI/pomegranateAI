@@ -1172,7 +1172,12 @@ export function createTools(deps: McpDeps): ToolDef[] {
           const links: string[] = [];
           const nodes = await Promise.all(result.nodes.map(async (value) => {
             const node = value as { id: string };
-            const assets = (await deps.media!.nodeAssets(ctx.ws, node.id, ctx.user_id)).map((a) => ({
+            // Same AI-read rule as the MCP download route, so no href is
+            // advertised that the route would refuse.
+            const listed = await deps.media!.nodeAssets(ctx.ws, node.id, ctx.user_id);
+            const readable = (await Promise.all(listed.map((a) =>
+              deps.media!.aiReadable(ctx.ws, a.id, ctx.user_id).then(() => a, () => null)))).filter((a) => a !== null);
+            const assets = readable.map((a) => ({
               id: a.id, name: a.original_name, mime: a.mime, bytes: a.bytes, visibility: a.visibility,
               href: `${ctx.origin ?? ''}/mcp/workspaces/${encodeURIComponent(ctx.ws)}/assets/${encodeURIComponent(a.id)}/content`,
             }));
