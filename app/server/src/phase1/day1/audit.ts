@@ -91,14 +91,29 @@ export interface RunDay1AuditOpts {
   synth: SynthesisProvider;
   workspace_id: string;
   requested_by?: string;
+  /**
+   * The user whose visibility bounds the graph sent to the model. The audit
+   * feeds the graph to an LLM, so it reads with `aiRead` (excludes `only_me`,
+   * even the viewer's own). Undefined skips filtering (single-user local mode).
+   */
+  viewer?: string;
   deliverables: Day1AuditInputDeliverable[];
 }
 
 export async function runDay1Audit(opts: RunDay1AuditOpts): Promise<Day1AuditReport> {
   // Not subgraph-fanned-out (a pre-multi-subgraph feature) — both calls default
   // to 'default', matching listNodes's own default.
-  const graph = await opts.repo.listNodes(opts.workspace_id, { activeOnly: true });
-  const edges = await opts.repo.listEdges(opts.workspace_id, {}, 'default');
+  const graph = await opts.repo.listNodes(opts.workspace_id, {
+    activeOnly: true,
+    viewer: opts.viewer,
+    aiRead: true,
+  });
+  // Edges carry node ids; keep only those whose both ends the viewer can see,
+  // so a hidden node's id never reaches the model through an edge.
+  const visible = new Set(graph.map((n) => n.id));
+  const edges = (await opts.repo.listEdges(opts.workspace_id, {}, 'default')).filter(
+    (e) => visible.has(e.src) && visible.has(e.dst),
+  );
 
   const perDeliverable: PerDeliverable[] = [];
   const totals = { red: 0, yellow: 0, green: 0 };
@@ -166,12 +181,22 @@ export async function runDay1Audit(opts: RunDay1AuditOpts): Promise<Day1AuditRep
   return report;
 }
 
+/**
+ * Report reads are scoped by requester: pass `requestedBy` to see only the
+ * reports that user ran (a plain member); omit it to see all of them (the
+ * workspace owner / a workspace_admin, or single-user local mode).
+ */
+export interface Day1ReadScope {
+  requestedBy?: string;
+}
+
 export async function getDay1Audit(
   repo: Repo,
   workspace_id: string,
   id: string,
+  scope: Day1ReadScope = {},
 ): Promise<Day1AuditReport | undefined> {
-  const row = await repo.getDay1AuditReport(workspace_id, id) as { report: string } | undefined;
+  const row = await repo.getDay1AuditReport(workspace_id, id, scope.requestedBy) as { report: string } | undefined;
   if (!row) return undefined;
   return JSON.parse(row.report) as Day1AuditReport;
 }
@@ -179,8 +204,9 @@ export async function getDay1Audit(
 export async function listDay1Audits(
   repo: Repo,
   workspace_id: string,
+  scope: Day1ReadScope = {},
 ): Promise<Array<{ id: string; created_at: string; deliverables_count: number }>> {
-  return await repo.listDay1AuditReports(workspace_id) as Array<{
+  return await repo.listDay1AuditReports(workspace_id, scope.requestedBy) as Array<{
     id: string;
     created_at: string;
     deliverables_count: number;

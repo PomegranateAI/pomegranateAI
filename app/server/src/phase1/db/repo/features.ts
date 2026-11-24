@@ -1438,11 +1438,20 @@ export class FeaturesRepo {
        VALUES (?, ?, ?, ?, ?, ?)`, [id, ws, requested_by, deliverables_count, report, created_at]));
   }
 
-  async getDay1AuditReport(this: Repo, ws: string, id: string): Promise<unknown> {
+  /** `requested_by` given → only that user's report resolves (member scope). */
+  async getDay1AuditReport(this: Repo, ws: string, id: string, requested_by?: string): Promise<unknown> {
+    if (requested_by !== undefined) {
+      return (await this.sql.one(`SELECT report FROM day1_audit_reports WHERE workspace_id = ? AND id = ? AND requested_by = ?`, [ws, id, requested_by]));
+    }
     return (await this.sql.one(`SELECT report FROM day1_audit_reports WHERE workspace_id = ? AND id = ?`, [ws, id]));
   }
 
-  async listDay1AuditReports(this: Repo, ws: string): Promise<unknown[]> {
+  /** `requested_by` given → only that user's reports (member scope). */
+  async listDay1AuditReports(this: Repo, ws: string, requested_by?: string): Promise<unknown[]> {
+    if (requested_by !== undefined) {
+      return (await this.sql.query(`SELECT id, created_at, deliverables_count FROM day1_audit_reports
+         WHERE workspace_id = ? AND requested_by = ? ORDER BY created_at DESC`, [ws, requested_by]));
+    }
     return (await this.sql.query(`SELECT id, created_at, deliverables_count FROM day1_audit_reports
        WHERE workspace_id = ? ORDER BY created_at DESC`, [ws]));
   }

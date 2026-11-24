@@ -19,6 +19,7 @@ const {
   withEvidence,
   repo,
   viewerFor,
+  isWorkspaceOwnerTier,
   synth,
   userEmail,
   clientIp,
@@ -73,7 +74,12 @@ app.post('/workspaces/:ws/reviews', authn, workspaceGate, async (c) => {
     const graph = await withEvidence(ws, await repo.listNodes(ws, { activeOnly: true, viewer: viewerFor(c), aiRead: true }, t.subgraph_id)) as Awaited<ReturnType<typeof repo.listNodes>>;
     // Every edge in the subfolder this profile has declared, if any — most
     // profiles today declare none, so this is typically empty.
-    const edges = await repo.listEdges(ws, {}, t.subgraph_id);
+    // Keep only edges whose both ends survived the viewer filter above, so a
+    // hidden node's id never reaches the model through an edge.
+    const visibleIds = new Set(graph.map((n) => n.id));
+    const edges = (await repo.listEdges(ws, {}, t.subgraph_id)).filter(
+      (e) => visibleIds.has(e.src) && visibleIds.has(e.dst),
+    );
     const findings = await withLlmContext(
       {
         caller: 'api.review',
@@ -187,6 +193,8 @@ app.post('/workspaces/:ws/day-1-audit', authn, workspaceGate, async (c) => {
     synth,
     workspace_id: ws,
     requested_by: user_id,
+    // The audit feeds the graph to an LLM → the requester's aiRead view.
+    viewer: viewerFor(c),
     deliverables: parsed.data.deliverables,
   });
   // Customer-audit: the act of running the audit is a leader-visible event,
@@ -208,14 +216,24 @@ app.post('/workspaces/:ws/day-1-audit', authn, workspaceGate, async (c) => {
   return c.json(report);
 });
 
+// A report is built from the requester's own view of the graph, so it is theirs:
+// a plain member sees only the reports they ran; the workspace owner or a
+// workspace_admin sees every report. Single-user local mode sees all.
+async function day1ReadScope(c: Parameters<typeof isWorkspaceOwnerTier>[0], ws: string): Promise<{ requestedBy?: string }> {
+  const viewer = viewerFor(c);
+  if (viewer === undefined || (await isWorkspaceOwnerTier(c, ws))) return {};
+  return { requestedBy: viewer };
+}
+
 app.get('/workspaces/:ws/day-1-audit', authn, workspaceGate, async (c) => {
   const ws = c.get('workspace_id');
-  return c.json({ reports: await listDay1Audits(repo, ws) });
+  return c.json({ reports: await listDay1Audits(repo, ws, await day1ReadScope(c, ws)) });
 });
 
 app.get('/workspaces/:ws/day-1-audit/:id', authn, workspaceGate, async (c) => {
   const ws = c.get('workspace_id');
-  const r = await getDay1Audit(repo, ws, c.req.param('id'));
+  // Another member's report is a 404, not a 403: don't confirm it exists.
+  const r = await getDay1Audit(repo, ws, c.req.param('id'), await day1ReadScope(c, ws));
   if (!r) return c.json({ error: 'not found' }, 404);
   return c.json(r);
 });
