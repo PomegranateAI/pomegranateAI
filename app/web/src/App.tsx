@@ -262,8 +262,15 @@ export function App() {
   const [mfaGate, setMfaGate] = useState<'ok' | 'enroll' | 'password'>('ok');
   useEffect(() => {
     if (!session) return;
-    Promise.all([api.getMe(), api.getMfa()])
-      .then(([me, m]) => setMfaGate(me.password_must_change ? 'password' : m.required && !m.has_password ? 'enroll' : 'ok'))
+    // Ask /me first: a password-change session may not reach /me/mfa (403),
+    // and fetching both together let that 403 fall through to 'ok'.
+    api
+      .getMe()
+      .then(async (me) => {
+        if (me.password_must_change) return setMfaGate('password');
+        const m = await api.getMfa();
+        setMfaGate(m.required && !m.has_password ? 'enroll' : 'ok');
+      })
       .catch(() => setMfaGate('ok'));
   }, [session]);
   const [wsId, setWs] = useState(getWorkspaceId());
